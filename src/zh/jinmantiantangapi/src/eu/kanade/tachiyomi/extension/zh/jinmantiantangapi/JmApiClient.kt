@@ -20,6 +20,9 @@ class JmApiClient(
     // 初始化标志
     @Volatile
     private var initialized = false
+
+    @Volatile
+    private var cachedImageHost: String = ""
     private val initLock = Any()
 
     /**
@@ -35,6 +38,8 @@ class JmApiClient(
                 val json = executeGet(JmConstants.ENDPOINT_SETTING)
                 // 检查初始化是否成功
                 checkResponse(json)
+                val settingData = json.optJSONObject("data")
+                cachedImageHost = settingData?.optString("img_host", "")?.trim().orEmpty()
                 initialized = true
             } catch (e: Exception) {
                 // 初始化失败不阻塞，让后续请求自己处理错误
@@ -60,6 +65,15 @@ class JmApiClient(
      * 获取 API 基础 URL
      */
     private fun getBaseUrl(): String = "https://${getApiDomain()}"
+
+    /**
+     * 获取图片主机（来自 /setting）
+     */
+    private fun getImageHost(): String {
+        val host = cachedImageHost.trim().trimEnd('/')
+        if (host.isEmpty()) return ""
+        return if (host.startsWith("http")) host else "https://$host"
+    }
 
     /**
      * 执行 GET 请求并返回 JSON 响应
@@ -193,7 +207,7 @@ class JmApiClient(
      */
     fun getAlbumDetail(albumId: String): SManga {
         ensureInitialized() // 确保会话已初始化
-        val json = executeGet("${JmConstants.ENDPOINT_ALBUM}/$albumId")
+        val json = executeGet(JmConstants.ENDPOINT_ALBUM, mapOf("id" to albumId))
         val data = getData(json)
         return parseMangaDetail(data)
     }
@@ -206,7 +220,7 @@ class JmApiClient(
      */
     fun getChapterList(albumId: String): List<SChapter> {
         ensureInitialized() // 确保会话已初始化
-        val json = executeGet("${JmConstants.ENDPOINT_ALBUM}/$albumId")
+        val json = executeGet(JmConstants.ENDPOINT_ALBUM, mapOf("id" to albumId))
         val data = getData(json)
         return parseChapterList(data, albumId)
     }
@@ -219,7 +233,7 @@ class JmApiClient(
      */
     fun getChapterPages(chapterId: String): List<Page> {
         ensureInitialized() // 确保会话已初始化
-        val json = executeGet("${JmConstants.ENDPOINT_CHAPTER}/$chapterId")
+        val json = executeGet(JmConstants.ENDPOINT_CHAPTER, mapOf("id" to chapterId, "mode" to "vertical"))
         val data = getData(json)
         return parsePageList(data)
     }
@@ -249,14 +263,16 @@ class JmApiClient(
      * 解析单个漫画信息（列表项）
      */
     private fun parseManga(json: JSONObject): SManga = SManga.create().apply {
-        val id = json.optString("id", "")
+        val id = json.optString("id", json.optString("aid", ""))
         url = "/album/$id"
-        title = json.optString("name", "")
+        title = json.optString("name", json.optString("title", ""))
 
         // 缩略图
         val imageUrl = json.optString("image", "")
         thumbnail_url = if (imageUrl.isNotEmpty()) {
             imageUrl.substringBeforeLast('.') + "_3x4.jpg"
+        } else if (id.isNotEmpty() && getImageHost().isNotEmpty()) {
+            "${getImageHost()}/media/albums/${id}_3x4.jpg"
         } else {
             ""
         }
@@ -267,6 +283,8 @@ class JmApiClient(
             (0 until authorArray.length()).joinToString(", ") {
                 authorArray.getString(it)
             }
+        } else if (json.optString("author", "").isNotEmpty()) {
+            json.optString("author", "")
         } else {
             ""
         }
@@ -278,7 +296,10 @@ class JmApiClient(
                 tagsArray.getString(it)
             }
         } else {
-            ""
+            buildList {
+                json.optJSONObject("category")?.optString("title")?.takeIf { it.isNotBlank() }?.let(::add)
+                json.optJSONObject("category_sub")?.optString("title")?.takeIf { it.isNotBlank() }?.let(::add)
+            }.joinToString(", ")
         }
     }
 
@@ -288,12 +309,14 @@ class JmApiClient(
     private fun parseMangaDetail(data: JSONObject): SManga = SManga.create().apply {
         val id = data.optString("id", "")
         url = "/album/$id"
-        title = data.optString("name", "")
+        title = data.optString("name", data.optString("title", ""))
 
         // 缩略图
         val imageUrl = data.optString("image", "")
         thumbnail_url = if (imageUrl.isNotEmpty()) {
             imageUrl.substringBeforeLast('.') + "_3x4.jpg"
+        } else if (id.isNotEmpty() && getImageHost().isNotEmpty()) {
+            "${getImageHost()}/media/albums/${id}_3x4.jpg"
         } else {
             ""
         }
@@ -336,7 +359,7 @@ class JmApiClient(
         val chapters = mutableListOf<SChapter>()
 
         // 检查是否有章节列表
-        val episodeArray = data.optJSONArray("episode")
+        val episodeArray = data.optJSONArray("episode") ?: data.optJSONArray("series")
 
         if (episodeArray == null || episodeArray.length() == 0) {
             // 单章节漫画
@@ -344,7 +367,7 @@ class JmApiClient(
                 url = "/chapter/${data.optString("id", albumId)}"
                 name = "单章节"
                 chapter_number = 1f
-                date_upload = parseDate(data.optString("created_at", ""))
+                date_upload = parseDate(data.optString("created_at", data.optString("addtime", "")))
             }
             chapters.add(chapter)
         } else {
@@ -355,9 +378,9 @@ class JmApiClient(
                     val chapter = SChapter.create().apply {
                         val chapterId = episode.optString("id", "")
                         url = "/chapter/$chapterId"
-                        name = episode.optString("name", "第${i + 1}话")
+                        name = episode.optString("name", episode.optString("title", "第${i + 1}话"))
                         chapter_number = (i + 1).toFloat()
-                        date_upload = parseDate(episode.optString("created_at", ""))
+                        date_upload = parseDate(episode.optString("created_at", episode.optString("addtime", "")))
                     }
                     chapters.add(chapter)
                 } catch (e: Exception) {
@@ -380,9 +403,16 @@ class JmApiClient(
         val imagesArray = data.optJSONArray("images")
             ?: throw Exception("章节数据缺少 images 字段")
 
-        // 获取图片域名
-        val imageDomain = data.optString("image_domain", "")
-        if (imageDomain.isEmpty()) {
+        val chapterId = data.optString("id", "")
+        if (chapterId.isEmpty()) {
+            throw Exception("章节数据缺少 id 字段")
+        }
+
+        // 图片域名优先使用章节字段，缺失时回退到 /setting 的 img_host
+        val imageHost = data.optString("image_domain", data.optString("domain", ""))
+            .ifEmpty { getImageHost() }
+            .trimEnd('/')
+        if (imageHost.isEmpty()) {
             throw Exception("章节数据缺少 image_domain 字段")
         }
 
@@ -390,7 +420,8 @@ class JmApiClient(
         for (i in 0 until imagesArray.length()) {
             try {
                 val imagePath = imagesArray.getString(i)
-                val imageUrl = "https://$imageDomain$imagePath"
+                val normalizedPath = if (imagePath.startsWith("/")) imagePath else "/media/photos/$chapterId/$imagePath"
+                val imageUrl = if (normalizedPath.startsWith("http")) normalizedPath else "$imageHost$normalizedPath"
                 pages.add(Page(i, "", imageUrl))
             } catch (e: Exception) {
                 // 跳过无效图片
@@ -409,6 +440,10 @@ class JmApiClient(
      */
     private fun parseDate(dateString: String): Long {
         if (dateString.isEmpty()) return 0L
+
+        dateString.toLongOrNull()?.let { value ->
+            return if (value > 1_000_000_000_000L) value else value * 1000L
+        }
 
         return try {
             val date = dateString.substringBefore(" ") // 只取日期部分
