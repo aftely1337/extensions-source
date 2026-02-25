@@ -160,11 +160,7 @@ class JinmantiantangApi :
     // ==================== 设置界面 ====================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        JinmantiantangApiPreferences.setupPreferenceScreen(
-            screen = screen,
-            preferences = preferences,
-            authManager = authManager,
-        )
+        getPreferenceList(screen.context, preferences, authManager).forEach(screen::addPreference)
     }
 
     // ==================== 过滤器 ====================
