@@ -25,12 +25,13 @@ class JmApiClient(
     private fun JSONArray.joinSafeStrings(): String = (0 until length())
         .mapNotNull { index ->
             val value = opt(index)
-            when (value) {
+            val text = when (value) {
                 null, JSONObject.NULL -> null
                 is String -> cleanString(value)
                 is JSONObject -> cleanString(value.optString("name", value.optString("title", value.toString())))
                 else -> cleanString(value.toString())
-            }.takeIf { it.isNotBlank() }
+            }
+            text?.takeIf { it.isNotBlank() }
         }
         .joinToString(", ")
 
