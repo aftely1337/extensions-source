@@ -17,6 +17,11 @@ class JmApiClient(
     private val client: OkHttpClient,
     private val preferences: SharedPreferences,
 ) {
+    private fun cleanString(value: String?): String = value
+        ?.trim()
+        ?.takeUnless { it.equals("null", ignoreCase = true) }
+        .orEmpty()
+
     // 初始化标志
     @Volatile
     private var initialized = false
@@ -39,7 +44,7 @@ class JmApiClient(
                 // 检查初始化是否成功
                 checkResponse(json)
                 val settingData = json.optJSONObject("data")
-                cachedImageHost = settingData?.optString("img_host", "")?.trim().orEmpty()
+                cachedImageHost = cleanString(settingData?.optString("img_host", ""))
                 initialized = true
             } catch (e: Exception) {
                 // 初始化失败不阻塞，让后续请求自己处理错误
@@ -263,12 +268,12 @@ class JmApiClient(
      * 解析单个漫画信息（列表项）
      */
     private fun parseManga(json: JSONObject): SManga = SManga.create().apply {
-        val id = json.optString("id", json.optString("aid", ""))
+        val id = cleanString(json.optString("id", json.optString("aid", "")))
         url = "/album/$id"
-        title = json.optString("name", json.optString("title", ""))
+        title = cleanString(json.optString("name", json.optString("title", "")))
 
         // 缩略图
-        val imageUrl = json.optString("image", "")
+        val imageUrl = cleanString(json.optString("image", ""))
         thumbnail_url = if (imageUrl.isNotEmpty()) {
             imageUrl.substringBeforeLast('.') + "_3x4.jpg"
         } else if (id.isNotEmpty() && getImageHost().isNotEmpty()) {
@@ -283,8 +288,8 @@ class JmApiClient(
             (0 until authorArray.length()).joinToString(", ") {
                 authorArray.getString(it)
             }
-        } else if (json.optString("author", "").isNotEmpty()) {
-            json.optString("author", "")
+        } else if (cleanString(json.optString("author", "")).isNotEmpty()) {
+            cleanString(json.optString("author", ""))
         } else {
             ""
         }
@@ -297,8 +302,8 @@ class JmApiClient(
             }
         } else {
             buildList {
-                json.optJSONObject("category")?.optString("title")?.takeIf { it.isNotBlank() }?.let(::add)
-                json.optJSONObject("category_sub")?.optString("title")?.takeIf { it.isNotBlank() }?.let(::add)
+                cleanString(json.optJSONObject("category")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
+                cleanString(json.optJSONObject("category_sub")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
             }.joinToString(", ")
         }
     }
@@ -307,12 +312,12 @@ class JmApiClient(
      * 解析漫画详情
      */
     private fun parseMangaDetail(data: JSONObject): SManga = SManga.create().apply {
-        val id = data.optString("id", "")
+        val id = cleanString(data.optString("id", ""))
         url = "/album/$id"
-        title = data.optString("name", data.optString("title", ""))
+        title = cleanString(data.optString("name", data.optString("title", "")))
 
         // 缩略图
-        val imageUrl = data.optString("image", "")
+        val imageUrl = cleanString(data.optString("image", ""))
         thumbnail_url = if (imageUrl.isNotEmpty()) {
             imageUrl.substringBeforeLast('.') + "_3x4.jpg"
         } else if (id.isNotEmpty() && getImageHost().isNotEmpty()) {
@@ -364,9 +369,9 @@ class JmApiClient(
         if (episodeArray == null || episodeArray.length() == 0) {
             // 单章节漫画
             val chapter = SChapter.create().apply {
-                val fallbackChapterId = data.optString("id", "")
+                val fallbackChapterId = cleanString(data.optString("id", ""))
                     .takeIf { it.isNotBlank() && it != "0" }
-                    ?: data.optString("series_id", "").takeIf { it.isNotBlank() && it != "0" }
+                    ?: cleanString(data.optString("series_id", "")).takeIf { it.isNotBlank() && it != "0" }
                     ?: albumId
                 url = "/chapter/$fallbackChapterId"
                 name = "单章节"
@@ -380,9 +385,10 @@ class JmApiClient(
                 try {
                     val episode = episodeArray.getJSONObject(i)
                     val chapter = SChapter.create().apply {
-                        val chapterId = episode.optString("id", "")
+                        val chapterId = cleanString(episode.optString("id", ""))
                         url = "/chapter/$chapterId"
-                        name = episode.optString("name", episode.optString("title", "第${i + 1}话"))
+                        name = cleanString(episode.optString("name", episode.optString("title", "第${i + 1}话")))
+                            .ifEmpty { "第${i + 1}话" }
                         chapter_number = (i + 1).toFloat()
                         date_upload = parseDate(episode.optString("created_at", episode.optString("addtime", "")))
                     }
@@ -407,16 +413,16 @@ class JmApiClient(
         val imagesArray = data.optJSONArray("images")
             ?: throw Exception("章节数据缺少 images 字段")
 
-        val chapterId = data.optString("id", "")
+        val chapterId = cleanString(data.optString("id", ""))
             .takeIf { it.isNotBlank() && it != "0" }
-            ?: data.optString("series_id", "").takeIf { it.isNotBlank() && it != "0" }
+            ?: cleanString(data.optString("series_id", "")).takeIf { it.isNotBlank() && it != "0" }
             ?: ""
         if (chapterId.isEmpty()) {
             throw Exception("章节数据缺少 id 字段")
         }
 
         // 图片域名优先使用章节字段，缺失时回退到 /setting 的 img_host
-        val imageHost = data.optString("image_domain", data.optString("domain", ""))
+        val imageHost = cleanString(data.optString("image_domain", data.optString("domain", "")))
             .ifEmpty { getImageHost() }
             .trimEnd('/')
         if (imageHost.isEmpty()) {
@@ -426,7 +432,8 @@ class JmApiClient(
         // 构建图片 URL
         for (i in 0 until imagesArray.length()) {
             try {
-                val imagePath = imagesArray.getString(i)
+                val imagePath = cleanString(imagesArray.getString(i))
+                if (imagePath.isEmpty()) continue
                 val normalizedPath = if (imagePath.startsWith("/")) imagePath else "/media/photos/$chapterId/$imagePath"
                 val imageUrl = if (normalizedPath.startsWith("http")) normalizedPath else "$imageHost$normalizedPath"
                 pages.add(Page(i, "", imageUrl))

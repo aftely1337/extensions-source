@@ -21,7 +21,7 @@ object ScrambledImageInterceptor : Interceptor {
         val response = chain.proceed(request)
         if (!url.toString().contains("media/photos", ignoreCase = true)) return response // 对非漫画图片连接直接放行
         val pathSegments = url.pathSegments
-        val aid = pathSegments[pathSegments.size - 2].toInt()
+        val aid = pathSegments.getOrNull(pathSegments.size - 2)?.toIntOrNull() ?: return response
         if (aid < SCRAMBLE_ID) return response // 对在漫画章节ID为220980之前的图片未进行图片分割,直接放行
         // 章节ID:220980(包含)之后的漫画(2020.10.27之后)图片进行了分割getRows倒序处理
         val responseBuilder = response.newBuilder()
