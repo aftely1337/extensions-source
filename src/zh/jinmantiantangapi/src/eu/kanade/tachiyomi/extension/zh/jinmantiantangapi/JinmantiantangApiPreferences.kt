@@ -2,10 +2,8 @@ package eu.kanade.tachiyomi.extension.zh.jinmantiantangapi
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
-import androidx.preference.Preference
 
 /**
  * 禁漫天堂 API 版插件设置界面
@@ -31,53 +29,6 @@ internal fun getPreferenceList(
         setDefaultValue("")
     },
 
-    // 登录状态显示
-    Preference(context).apply {
-        title = "登录状态"
-        summary = if (authManager.isLoggedIn()) {
-            val username = authManager.getUsername()
-            if (username.isNotEmpty()) "已登录: $username" else "已登录"
-        } else {
-            "未登录"
-        }
-        isEnabled = false
-    },
-
-    // 测试登录按钮
-    Preference(context).apply {
-        title = "测试登录"
-        summary = "点击测试登录是否成功"
-
-        setOnPreferenceClickListener {
-            try {
-                val username = preferences.getString(JmConstants.PREF_USERNAME, "") ?: ""
-                val password = preferences.getString(JmConstants.PREF_PASSWORD, "") ?: ""
-
-                if (username.isEmpty() || password.isEmpty()) {
-                    Toast.makeText(context, "请先输入用户名和密码", Toast.LENGTH_SHORT).show()
-                } else {
-                    val result = authManager.login(username, password)
-                    Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(context, "登录失败: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-            true
-        }
-    },
-
-    // 登出按钮
-    Preference(context).apply {
-        title = "登出"
-        summary = "清除登录信息"
-
-        setOnPreferenceClickListener {
-            authManager.logout()
-            Toast.makeText(context, "已登出", Toast.LENGTH_SHORT).show()
-            true
-        }
-    },
-
     // API 域名选择
     ListPreference(context).apply {
         key = JmConstants.PREF_API_DOMAIN_INDEX
@@ -92,11 +43,6 @@ internal fun getPreferenceList(
         entryValues = Array(domainList.size) { it.toString() }
         summary = "当前: %s\n切换后需要重启应用"
         setDefaultValue("0")
-
-        setOnPreferenceChangeListener { _, _ ->
-            Toast.makeText(context, "域名已切换，请重启应用", Toast.LENGTH_LONG).show()
-            true
-        }
     },
 
     // 请求数量限制
