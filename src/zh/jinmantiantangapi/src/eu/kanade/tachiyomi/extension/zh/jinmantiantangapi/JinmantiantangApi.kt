@@ -291,7 +291,9 @@ class JinmantiantangApi :
 
         tokens.forEach { token ->
             when {
-                token.startsWith("-") && token.length > 1 -> excluded += token.removePrefix("-")
+                (token.startsWith("-") || token.startsWith("－")) && token.length > 1 -> {
+                    excluded += token.removePrefix("-").removePrefix("－")
+                }
                 else -> positiveTokens += token
             }
         }
@@ -309,11 +311,25 @@ class JinmantiantangApi :
         if (excludedTerms.isEmpty()) return this
         val lowered = excludedTerms.map { normalizeForMatch(it) }.filter { it.isNotBlank() }
         val filtered = mangas.filterNot { manga ->
-            val haystack = normalizeForMatch(
+            val listHaystack = normalizeForMatch(
                 listOf(manga.title, manga.author, manga.genre, manga.description)
                     .joinToString(" ") { it.orEmpty() },
             )
-            lowered.any { it in haystack }
+            if (lowered.any { it in listHaystack }) {
+                true
+            } else {
+                // 搜索列表项不包含完整 tags，排除词（如 人妻）需要详情页补充判断
+                val detail = runCatching {
+                    val albumId = manga.url.substringAfter("/album/").substringBefore("/")
+                    if (albumId.isBlank()) null else apiClient.getAlbumDetail(albumId)
+                }.getOrNull()
+
+                val detailHaystack = normalizeForMatch(
+                    listOf(detail?.title, detail?.author, detail?.genre, detail?.description)
+                        .joinToString(" ") { it.orEmpty() },
+                )
+                lowered.any { it in detailHaystack }
+            }
         }
         return MangasPage(filtered, hasNextPage)
     }

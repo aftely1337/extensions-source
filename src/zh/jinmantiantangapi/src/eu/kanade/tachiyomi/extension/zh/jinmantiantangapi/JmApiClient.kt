@@ -4,12 +4,10 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLEncoder
 /**
  * 禁漫天堂 API 客户端
  *
@@ -106,17 +104,26 @@ class JmApiClient(
      * 构建完整 URL
      */
     private fun buildUrl(endpoint: String, params: Map<String, String>): String {
-        val builder = "${getBaseUrl()}$endpoint".toHttpUrl().newBuilder()
-        params.forEach { (key, value) ->
-            if (key == "search_query") {
-                val encoded = URLEncoder.encode(value, Charsets.UTF_8.name())
-                builder.addEncodedQueryParameter(key, encoded)
-            } else {
-                builder.addQueryParameter(key, value)
-            }
+        if (params.isEmpty()) return "${getBaseUrl()}$endpoint"
+
+        val url = StringBuilder("${getBaseUrl()}$endpoint?")
+        params.entries.forEachIndexed { index, (key, value) ->
+            if (index > 0) url.append('&')
+            url.append(key)
+            url.append('=')
+            url.append(if (key == "search_query") encodeSearchQuery(value) else value.toHttpUrlQuery())
         }
-        return builder.build().toString()
+        return url.toString()
     }
+
+    /**
+     * 禁漫搜索语法依赖特殊编码：
+     * - 空格 -> + (OR)
+     * - +号 -> %2B (AND 运算符字面量)
+     */
+    private fun encodeSearchQuery(value: String): String = java.net.URLEncoder.encode(value, Charsets.UTF_8.name())
+
+    private fun String.toHttpUrlQuery(): String = java.net.URLEncoder.encode(this, Charsets.UTF_8.name())
 
     /**
      * 检查响应状态
