@@ -82,7 +82,8 @@ class JmApiClient(
     private fun checkResponse(json: JSONObject) {
         val code = json.optInt("code", -1)
         if (code != 200) {
-            val message = json.optString("message", "未知错误")
+            // API 返回的错误字段是 errorMsg，不是 message
+            val message = json.optString("errorMsg", json.optString("message", "未知错误"))
             throw Exception("API 错误: $message (code: $code)")
         }
     }
