@@ -53,7 +53,9 @@ class ApiResponseInterceptor : Interceptor {
             }
 
             // 获取请求时的时间戳
-            val timestamp = response.header("X-Request-Timestamp")?.toLongOrNull()
+            val timestamp = request.header("X-Request-Timestamp")?.toLongOrNull()
+                ?: response.request.header("X-Request-Timestamp")?.toLongOrNull()
+                ?: response.header("X-Request-Timestamp")?.toLongOrNull()
             if (timestamp == null) {
                 // 没有时间戳，无法解密，返回原响应
                 return response.newBuilder()

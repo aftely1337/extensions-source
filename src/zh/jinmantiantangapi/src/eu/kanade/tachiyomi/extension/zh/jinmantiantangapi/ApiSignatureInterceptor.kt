@@ -45,6 +45,7 @@ class ApiSignatureInterceptor : Interceptor {
         val newRequest = originalRequest.newBuilder()
             .header("token", token)
             .header("tokenparam", tokenparam)
+            .header("X-Request-Timestamp", timestamp.toString())
             .header("User-Agent", JmConstants.USER_AGENT)
             .header("Accept-Encoding", "gzip, deflate")
             .header("X-Requested-With", JmConstants.IMAGE_X_REQUESTED_WITH) // 必需：标识来自官方应用
