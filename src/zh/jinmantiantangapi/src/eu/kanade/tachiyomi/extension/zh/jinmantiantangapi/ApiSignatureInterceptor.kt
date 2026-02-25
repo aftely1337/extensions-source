@@ -39,6 +39,7 @@ class ApiSignatureInterceptor : Interceptor {
             .url(newUrl)
             .addHeader("User-Agent", JmConstants.USER_AGENT)
             .addHeader("Accept-Encoding", "gzip, deflate")
+            .addHeader("X-Requested-With", JmConstants.IMAGE_X_REQUESTED_WITH) // 必需：标识来自官方应用
             .build()
 
         // 执行请求
