@@ -20,6 +20,16 @@ object ScrambledImageInterceptor : Interceptor {
         val url = request.url
         val response = chain.proceed(request)
         if (!url.toString().contains("media/photos", ignoreCase = true)) return response // 对非漫画图片连接直接放行
+
+        val fileName = url.pathSegments.lastOrNull().orEmpty()
+        val contentType = response.header("Content-Type").orEmpty()
+
+        // 动图（GIF）不能走 Bitmap -> JPEG 重编码，否则会丢失动画帧
+        if (isGif(fileName, contentType)) return response
+
+        // 动图 WebP 同样不能重编码；仅在可确认是动画 WebP 时跳过
+        if (isAnimatedWebp(fileName, contentType, response)) return response
+
         val pathSegments = url.pathSegments
         val aid = pathSegments.getOrNull(pathSegments.size - 2)?.toIntOrNull() ?: return response
         if (aid < SCRAMBLE_ID) return response // 对在漫画章节ID为220980之前的图片未进行图片分割,直接放行
@@ -61,6 +71,55 @@ object ScrambledImageInterceptor : Interceptor {
             else -> return 10
         }
         return 2 * (md5LastCharCode(aid.toString() + imgIndex) % modulus) + 2
+    }
+
+    private fun isGif(fileName: String, contentType: String): Boolean = fileName.endsWith(".gif", ignoreCase = true) ||
+        contentType.contains("image/gif", ignoreCase = true)
+
+    private fun isAnimatedWebp(fileName: String, contentType: String, response: Response): Boolean {
+        val maybeWebp = fileName.endsWith(".webp", ignoreCase = true) ||
+            contentType.contains("image/webp", ignoreCase = true)
+        if (!maybeWebp) return false
+
+        // 若响应体被 gzip 压缩，peek 到的是压缩字节，保守地继续走原逻辑（避免误判影响静态 webp）
+        if (response.header("Content-Encoding").equals("gzip", ignoreCase = true)) return false
+
+        val head = try {
+            response.peekBody(64 * 1024).bytes()
+        } catch (_: Exception) {
+            return false
+        }
+        return looksLikeAnimatedWebp(head)
+    }
+
+    private fun looksLikeAnimatedWebp(data: ByteArray): Boolean {
+        if (data.size < 16) return false
+        if (!(data[0] == 'R'.code.toByte() && data[1] == 'I'.code.toByte() && data[2] == 'F'.code.toByte() && data[3] == 'F'.code.toByte())) return false
+        if (!(data[8] == 'W'.code.toByte() && data[9] == 'E'.code.toByte() && data[10] == 'B'.code.toByte() && data[11] == 'P'.code.toByte())) return false
+
+        // 1) 直接查找 ANIM chunk（最可靠）
+        val anim = byteArrayOf('A'.code.toByte(), 'N'.code.toByte(), 'I'.code.toByte(), 'M'.code.toByte())
+        for (i in 12..(data.size - anim.size)) {
+            var matched = true
+            for (j in anim.indices) {
+                if (data[i + j] != anim[j]) {
+                    matched = false
+                    break
+                }
+            }
+            if (matched) return true
+        }
+
+        // 2) VP8X 扩展头动画标志位（bit 1）
+        // chunk layout: [12..15] = FourCC, [16..19] = chunk size, [20] = flags
+        if (data.size > 21 &&
+            data[12] == 'V'.code.toByte() && data[13] == 'P'.code.toByte() && data[14] == '8'.code.toByte() && data[15] == 'X'.code.toByte()
+        ) {
+            val flags = data[20].toInt() and 0xFF
+            if ((flags and 0x02) != 0) return true
+        }
+
+        return false
     }
 
     // 对被分割的图片进行分割,排序处理
