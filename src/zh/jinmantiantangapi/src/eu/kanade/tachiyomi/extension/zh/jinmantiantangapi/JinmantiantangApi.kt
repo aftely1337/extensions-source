@@ -115,7 +115,8 @@ class JinmantiantangApi :
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val parsedFilters = filters.toApiSearchFilters()
-        val textQuery = query.trim()
+        val syntax = parseSearchSyntax(query)
+        val textQuery = syntax.apiQuery
         val filterKeyword = parsedFilters.categoryKeyword.trim()
         val mergedQuery = when {
             textQuery.isNotBlank() && filterKeyword.isNotBlank() -> "$textQuery +$filterKeyword"
@@ -133,6 +134,7 @@ class JinmantiantangApi :
                 .apply {
                     addQueryParameter("c", parsedFilters.categoryId)
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
+                    syntax.excludedTerms.takeIf { it.isNotEmpty() }?.let { addQueryParameter("x_exclude", it.joinToString("|")) }
                 }
                 .build()
                 .toString()
@@ -144,6 +146,7 @@ class JinmantiantangApi :
                 .addQueryParameter("o", parsedFilters.sortBy)
                 .apply {
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
+                    syntax.excludedTerms.takeIf { it.isNotEmpty() }?.let { addQueryParameter("x_exclude", it.joinToString("|")) }
                 }
                 .build()
                 .toString()
@@ -159,8 +162,12 @@ class JinmantiantangApi :
         val page = url.queryParameter("page")?.toIntOrNull() ?: 1
         val sortBy = url.queryParameter("o") ?: "mr"
         val time = url.queryParameter("t") ?: ""
+        val excludedTerms = (url.queryParameter("x_exclude") ?: "")
+            .split("|")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
-        return if (url.encodedPath.endsWith(JmConstants.ENDPOINT_CATEGORIES_FILTER)) {
+        val result = if (url.encodedPath.endsWith(JmConstants.ENDPOINT_CATEGORIES_FILTER)) {
             apiClient.getCategoryFilter(
                 categoryId = url.queryParameter("c") ?: "",
                 page = page,
@@ -176,6 +183,8 @@ class JinmantiantangApi :
                 time = time,
             )
         }
+
+        return result.applyLocalExclusion(excludedTerms)
     }
 
     // ==================== 漫画详情 ====================
@@ -260,6 +269,53 @@ class JinmantiantangApi :
     }
 
     private inline fun <reified T> FilterList.filterOrNull(): T? = firstOrNull { it is T } as? T
+
+    private data class SearchSyntax(
+        val apiQuery: String,
+        val excludedTerms: List<String>,
+    )
+
+    /**
+     * 对齐原版搜索语法：
+     * - 空格：OR
+     * - +关键词：AND
+     * - -关键词：排除（API端不稳定，改为本地过滤）
+     */
+    private fun parseSearchSyntax(rawQuery: String): SearchSyntax {
+        val trimmed = rawQuery.trim()
+        if (trimmed.isBlank()) return SearchSyntax("", emptyList())
+
+        val tokens = trimmed.split(Regex("\\s+"))
+        val excluded = mutableListOf<String>()
+        val positiveTokens = mutableListOf<String>()
+
+        tokens.forEach { token ->
+            when {
+                token.startsWith("-") && token.length > 1 -> excluded += token.removePrefix("-")
+                else -> positiveTokens += token
+            }
+        }
+
+        val apiQuery = if (excluded.isEmpty()) {
+            trimmed // 无排除时尽量保留用户语法
+        } else {
+            positiveTokens.joinToString(" ").trim() // 有排除时仅把正向词交给 API
+        }
+
+        return SearchSyntax(apiQuery, excluded.filter { it.isNotBlank() })
+    }
+
+    private fun MangasPage.applyLocalExclusion(excludedTerms: List<String>): MangasPage {
+        if (excludedTerms.isEmpty()) return this
+        val lowered = excludedTerms.map { it.lowercase() }
+        val filtered = mangas.filterNot { manga ->
+            val haystack = listOf(manga.title, manga.author, manga.genre, manga.description)
+                .joinToString(" ") { it.orEmpty() }
+                .lowercase()
+            lowered.any { it in haystack }
+        }
+        return MangasPage(filtered, hasNextPage)
+    }
 
     private data class CategoryOption(
         val label: String,
