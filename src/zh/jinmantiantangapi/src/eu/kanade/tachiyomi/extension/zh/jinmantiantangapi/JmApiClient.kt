@@ -1,5 +1,4 @@
 package eu.kanade.tachiyomi.extension.zh.jinmantiantangapi
-
 import android.content.SharedPreferences
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -9,7 +8,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-
 /**
  * 禁漫天堂 API 客户端
  *
@@ -19,6 +17,31 @@ class JmApiClient(
     private val client: OkHttpClient,
     private val preferences: SharedPreferences,
 ) {
+    // 初始化标志
+    @Volatile
+    private var initialized = false
+    private val initLock = Any()
+
+    /**
+     * 确保API已初始化
+     * 禁漫天堂API需要先调用/setting端点建立会话
+     */
+    private fun ensureInitialized() {
+        if (initialized) return
+        synchronized(initLock) {
+            if (initialized) return
+            try {
+                // 调用/setting端点初始化会话
+                val json = executeGet(JmConstants.ENDPOINT_SETTING)
+                // 检查初始化是否成功
+                checkResponse(json)
+                initialized = true
+            } catch (e: Exception) {
+                // 初始化失败不阻塞，让后续请求自己处理错误
+                initialized = false
+            }
+        }
+    }
 
     /**
      * 获取当前 API 域名
@@ -104,14 +127,13 @@ class JmApiClient(
      * @return 漫画列表页
      */
     fun search(query: String, page: Int): MangasPage {
+        ensureInitialized() // 确保会话已初始化
         val params = mapOf(
             "search_query" to query,
             "page" to page.toString(),
         )
-
         val json = executeGet(JmConstants.ENDPOINT_SEARCH, params)
         val data = getData(json)
-
         return parseMangaList(data)
     }
 
@@ -128,18 +150,16 @@ class JmApiClient(
         page: Int = 1,
         sortBy: String = "mr",
     ): MangasPage {
+        ensureInitialized() // 确保会话已初始化
         val params = mutableMapOf(
             "page" to page.toString(),
             "o" to sortBy,
         )
-
         if (categoryId.isNotEmpty()) {
             params["c"] = categoryId
         }
-
         val json = executeGet(JmConstants.ENDPOINT_CATEGORIES_FILTER, params)
         val data = getData(json)
-
         return parseMangaList(data)
     }
 
@@ -150,19 +170,17 @@ class JmApiClient(
      * @return 漫画列表页
      */
     fun getFavorites(page: Int): MangasPage {
+        ensureInitialized() // 确保会话已初始化
         val params = mapOf("page" to page.toString())
         val json = executeGet(JmConstants.ENDPOINT_FAVORITE, params)
         val data = getData(json)
-
         // 收藏列表使用 list 字段而不是 content
         val list = data.optJSONArray("list") ?: JSONArray()
         val mangas = mutableListOf<SManga>()
-
         for (i in 0 until list.length()) {
             val item = list.getJSONObject(i)
             mangas.add(parseManga(item))
         }
-
         val hasNextPage = data.optInt("total", 0) > page * 20
         return MangasPage(mangas, hasNextPage)
     }
@@ -174,9 +192,9 @@ class JmApiClient(
      * @return 漫画详情
      */
     fun getAlbumDetail(albumId: String): SManga {
+        ensureInitialized() // 确保会话已初始化
         val json = executeGet("${JmConstants.ENDPOINT_ALBUM}/$albumId")
         val data = getData(json)
-
         return parseMangaDetail(data)
     }
 
@@ -187,9 +205,9 @@ class JmApiClient(
      * @return 章节列表
      */
     fun getChapterList(albumId: String): List<SChapter> {
+        ensureInitialized() // 确保会话已初始化
         val json = executeGet("${JmConstants.ENDPOINT_ALBUM}/$albumId")
         val data = getData(json)
-
         return parseChapterList(data, albumId)
     }
 
@@ -200,9 +218,9 @@ class JmApiClient(
      * @return 图片页列表
      */
     fun getChapterPages(chapterId: String): List<Page> {
+        ensureInitialized() // 确保会话已初始化
         val json = executeGet("${JmConstants.ENDPOINT_CHAPTER}/$chapterId")
         val data = getData(json)
-
         return parsePageList(data)
     }
 
