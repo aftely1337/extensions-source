@@ -115,8 +115,7 @@ class JinmantiantangApi :
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val parsedFilters = filters.toApiSearchFilters()
-        val syntax = parseSearchSyntax(query)
-        val textQuery = syntax.apiQuery
+        val textQuery = query
         val filterKeyword = parsedFilters.categoryKeyword.trim()
         val mergedQuery = when {
             textQuery.isNotBlank() && filterKeyword.isNotBlank() -> "$textQuery +$filterKeyword"
@@ -134,7 +133,6 @@ class JinmantiantangApi :
                 .apply {
                     addQueryParameter("c", parsedFilters.categoryId)
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
-                    syntax.excludedTerms.takeIf { it.isNotEmpty() }?.let { addQueryParameter("x_exclude", it.joinToString("|")) }
                 }
                 .build()
                 .toString()
@@ -146,7 +144,6 @@ class JinmantiantangApi :
                 .addQueryParameter("o", parsedFilters.sortBy)
                 .apply {
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
-                    syntax.excludedTerms.takeIf { it.isNotEmpty() }?.let { addQueryParameter("x_exclude", it.joinToString("|")) }
                 }
                 .build()
                 .toString()
@@ -162,12 +159,8 @@ class JinmantiantangApi :
         val page = url.queryParameter("page")?.toIntOrNull() ?: 1
         val sortBy = url.queryParameter("o") ?: "mr"
         val time = url.queryParameter("t") ?: ""
-        val excludedTerms = (url.queryParameter("x_exclude") ?: "")
-            .split("|")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
 
-        val result = if (url.encodedPath.endsWith(JmConstants.ENDPOINT_CATEGORIES_FILTER)) {
+        return if (url.encodedPath.endsWith(JmConstants.ENDPOINT_CATEGORIES_FILTER)) {
             apiClient.getCategoryFilter(
                 categoryId = url.queryParameter("c") ?: "",
                 page = page,
@@ -183,8 +176,6 @@ class JinmantiantangApi :
                 time = time,
             )
         }
-
-        return result.applyLocalExclusion(excludedTerms)
     }
 
     // ==================== 漫画详情 ====================
@@ -269,74 +260,6 @@ class JinmantiantangApi :
     }
 
     private inline fun <reified T> FilterList.filterOrNull(): T? = firstOrNull { it is T } as? T
-
-    private data class SearchSyntax(
-        val apiQuery: String,
-        val excludedTerms: List<String>,
-    )
-
-    /**
-     * 对齐原版搜索语法：
-     * - 空格：OR
-     * - +关键词：AND
-     * - -关键词：排除（API端不稳定，改为本地过滤）
-     */
-    private fun parseSearchSyntax(rawQuery: String): SearchSyntax {
-        val trimmed = rawQuery.trim()
-        if (trimmed.isBlank()) return SearchSyntax("", emptyList())
-
-        val tokens = trimmed.split(Regex("\\s+"))
-        val excluded = mutableListOf<String>()
-        val positiveTokens = mutableListOf<String>()
-
-        tokens.forEach { token ->
-            when {
-                (token.startsWith("-") || token.startsWith("－")) && token.length > 1 -> {
-                    excluded += token.removePrefix("-").removePrefix("－")
-                }
-                else -> positiveTokens += token
-            }
-        }
-
-        val apiQuery = if (excluded.isEmpty()) {
-            rawQuery // 无排除时保留用户原始语法（包括尾部空格）
-        } else {
-            positiveTokens.joinToString(" ").trim() // 有排除时仅把正向词交给 API
-        }
-
-        return SearchSyntax(apiQuery, excluded.filter { it.isNotBlank() })
-    }
-
-    private fun MangasPage.applyLocalExclusion(excludedTerms: List<String>): MangasPage {
-        if (excludedTerms.isEmpty()) return this
-        val lowered = excludedTerms.map { normalizeForMatch(it) }.filter { it.isNotBlank() }
-        val filtered = mangas.filterNot { manga ->
-            val listHaystack = normalizeForMatch(
-                listOf(manga.title, manga.author, manga.genre, manga.description)
-                    .joinToString(" ") { it.orEmpty() },
-            )
-            if (lowered.any { it in listHaystack }) {
-                true
-            } else {
-                // 搜索列表项不包含完整 tags，排除词（如 人妻）需要详情页补充判断
-                val detail = runCatching {
-                    val albumId = manga.url.substringAfter("/album/").substringBefore("/")
-                    if (albumId.isBlank()) null else apiClient.getAlbumDetail(albumId)
-                }.getOrNull()
-
-                val detailHaystack = normalizeForMatch(
-                    listOf(detail?.title, detail?.author, detail?.genre, detail?.description)
-                        .joinToString(" ") { it.orEmpty() },
-                )
-                lowered.any { it in detailHaystack }
-            }
-        }
-        return MangasPage(filtered, hasNextPage)
-    }
-
-    private fun normalizeForMatch(value: String): String = value
-        .lowercase()
-        .replace(Regex("\\s+"), "")
 
     private data class CategoryOption(
         val label: String,

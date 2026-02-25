@@ -22,6 +22,18 @@ class JmApiClient(
         ?.takeUnless { it.equals("null", ignoreCase = true) }
         .orEmpty()
 
+    private fun JSONArray.joinSafeStrings(): String = (0 until length())
+        .mapNotNull { index ->
+            val value = opt(index)
+            when (value) {
+                null, JSONObject.NULL -> null
+                is String -> cleanString(value)
+                is JSONObject -> cleanString(value.optString("name", value.optString("title", value.toString())))
+                else -> cleanString(value.toString())
+            }.takeIf { it.isNotBlank() }
+        }
+        .joinToString(", ")
+
     // 初始化标志
     @Volatile
     private var initialized = false
@@ -217,8 +229,12 @@ class JmApiClient(
         val list = data.optJSONArray("list") ?: JSONArray()
         val mangas = mutableListOf<SManga>()
         for (i in 0 until list.length()) {
-            val item = list.getJSONObject(i)
-            mangas.add(parseManga(item))
+            try {
+                val item = list.getJSONObject(i)
+                mangas.add(parseManga(item))
+            } catch (_: Exception) {
+                continue
+            }
         }
         val hasNextPage = data.optInt("total", 0) > page * 20
         return MangasPage(mangas, hasNextPage)
@@ -305,9 +321,7 @@ class JmApiClient(
         // 作者
         val authorArray = json.optJSONArray("author")
         author = if (authorArray != null && authorArray.length() > 0) {
-            (0 until authorArray.length()).joinToString(", ") {
-                authorArray.getString(it)
-            }
+            authorArray.joinSafeStrings()
         } else if (cleanString(json.optString("author", "")).isNotEmpty()) {
             cleanString(json.optString("author", ""))
         } else {
@@ -317,9 +331,7 @@ class JmApiClient(
         // 标签
         val tagsArray = json.optJSONArray("tags")
         genre = if (tagsArray != null && tagsArray.length() > 0) {
-            (0 until tagsArray.length()).joinToString(", ") {
-                tagsArray.getString(it)
-            }
+            tagsArray.joinSafeStrings()
         } else {
             buildList {
                 cleanString(json.optJSONObject("category")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
@@ -349,21 +361,20 @@ class JmApiClient(
         // 作者
         val authorArray = data.optJSONArray("author")
         author = if (authorArray != null && authorArray.length() > 0) {
-            (0 until authorArray.length()).joinToString(", ") {
-                authorArray.getString(it)
-            }
+            authorArray.joinSafeStrings()
         } else {
-            ""
+            cleanString(data.optString("author", ""))
         }
 
         // 标签
         val tagsArray = data.optJSONArray("tags")
         genre = if (tagsArray != null && tagsArray.length() > 0) {
-            (0 until tagsArray.length()).joinToString(", ") {
-                tagsArray.getString(it)
-            }
+            tagsArray.joinSafeStrings()
         } else {
-            ""
+            buildList {
+                cleanString(data.optJSONObject("category")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
+                cleanString(data.optJSONObject("category_sub")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
+            }.joinToString(", ")
         }
 
         // 状态
