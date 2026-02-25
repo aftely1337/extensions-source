@@ -115,9 +115,14 @@ class JinmantiantangApi :
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val parsedFilters = filters.toApiSearchFilters()
-        val mergedQuery = listOf(query.trim(), parsedFilters.categoryKeyword)
-            .filter { it.isNotBlank() }
-            .joinToString(" ")
+        val textQuery = query.trim()
+        val filterKeyword = parsedFilters.categoryKeyword.trim()
+        val mergedQuery = when {
+            textQuery.isNotBlank() && filterKeyword.isNotBlank() -> "$textQuery +$filterKeyword"
+            textQuery.isNotBlank() -> textQuery
+            filterKeyword.isNotBlank() -> filterKeyword
+            else -> ""
+        }
 
         val isCategoryListingMode = mergedQuery.isBlank()
 
