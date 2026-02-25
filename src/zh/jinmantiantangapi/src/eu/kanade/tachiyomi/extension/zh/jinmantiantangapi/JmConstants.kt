@@ -90,12 +90,6 @@ object JmConstants {
 
     // ==================== SharedPreferences 键名 ====================
 
-    /** 已废弃：历史登录用户名（用于清理遗留数据） */
-    const val PREF_USERNAME = "username"
-
-    /** 已废弃：历史登录密码（用于清理遗留数据） */
-    const val PREF_PASSWORD = "password"
-
     /** 会话 Cookie（匿名/登录均可能使用） */
     const val PREF_LOGIN_COOKIE = "login_cookie"
 
@@ -104,15 +98,4 @@ object JmConstants {
 
     /** API 域名列表（动态更新） */
     const val PREF_API_DOMAIN_LIST = "api_domain_list"
-
-    /** 限流 - 请求数量 */
-    const val PREF_RATE_LIMIT = "rate_limit"
-    const val PREF_RATE_LIMIT_DEFAULT = "1"
-
-    /** 限流 - 时间周期（秒） */
-    const val PREF_RATE_PERIOD = "rate_period"
-    const val PREF_RATE_PERIOD_DEFAULT = "3"
-
-    /** 屏蔽词列表 */
-    const val PREF_BLOCK_LIST = "block_list"
 }

@@ -28,6 +28,12 @@ class JinmantiantangApi :
     HttpSource(),
     ConfigurableSource {
 
+    companion object {
+        // 登录功能已移除，保留旧键名用于清理历史明文凭证
+        private const val LEGACY_PREF_USERNAME = "username"
+        private const val LEGACY_PREF_PASSWORD = "password"
+    }
+
     override val name = "禁漫天堂(API)"
     override val lang = "zh"
     override val supportsLatest = true
@@ -70,8 +76,8 @@ class JinmantiantangApi :
 
         // 移除已废弃的登录功能残留凭证（明文）
         preferences.edit()
-            .remove(JmConstants.PREF_USERNAME)
-            .remove(JmConstants.PREF_PASSWORD)
+            .remove(LEGACY_PREF_USERNAME)
+            .remove(LEGACY_PREF_PASSWORD)
             .apply()
     }
 
