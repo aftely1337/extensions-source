@@ -31,12 +31,20 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
       
-      - name: Build jinmantiantangapi (debug - no signing required)
-        run: ./gradlew :src:zh:jinmantiantangapi:assembleDebug
+      - name: Prepare signing key
+        run: |
+          echo ${{ secrets.SIGNING_KEY }} | base64 -d > signingkey.jks
+      
+      - name: Build jinmantiantangapi (release)
+        env:
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        run: ./gradlew :src:zh:jinmantiantangapi:assembleRelease
       
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: jinmantiantangapi-debug
-          path: src/zh/jinmantiantangapi/build/outputs/apk/debug/*.apk
+          name: jinmantiantangapi-release
+          path: src/zh/jinmantiantangapi/build/outputs/apk/release/*.apk
           retention-days: 30
