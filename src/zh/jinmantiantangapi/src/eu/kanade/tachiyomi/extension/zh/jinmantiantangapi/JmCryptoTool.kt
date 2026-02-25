@@ -178,3 +178,41 @@ object JmCryptoTool {
         return md5Hash.last().code
     }
 }
+
+/**
+ * 解密域名服务器返回的域名列表
+ *
+ * 域名服务器返回加密的域名列表，解密流程：
+ * 1. Base64 解码
+ * 2. AES-ECB 解密（key = MD5(API_DOMAIN_SERVER_SECRET)）
+ * 3. UTF-8 解码为文本
+ * 4. 按行分割得到域名列表
+ *
+ * @param encryptedData 加密的 Base64 字符串
+ * @return 域名列表
+ * @throws Exception 解密失败时抛出异常
+ */
+fun decryptDomainList(encryptedData: String): List<String> {
+    try {
+        // 1. 生成 AES 密钥：MD5(API_DOMAIN_SERVER_SECRET)
+        val keyString = md5(JmConstants.API_DOMAIN_SERVER_SECRET)
+        val keyBytes = keyString.toByteArray(Charsets.UTF_8)
+        val secretKey = SecretKeySpec(keyBytes, "AES")
+
+        // 2. Base64 解码
+        val encryptedBytes = Base64.decode(encryptedData, Base64.DEFAULT)
+
+        // 3. AES-ECB 解密
+        val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
+        cipher.init(Cipher.DECRYPT_MODE, secretKey)
+        val decryptedBytes = cipher.doFinal(encryptedBytes)
+
+        // 4. UTF-8 解码并按行分割
+        val decryptedText = String(decryptedBytes, Charsets.UTF_8)
+        return decryptedText.lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    } catch (e: Exception) {
+        throw Exception("解密域名列表失败: ${e.message}", e)
+    }
+}

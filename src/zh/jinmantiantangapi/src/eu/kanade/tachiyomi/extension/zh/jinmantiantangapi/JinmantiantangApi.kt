@@ -52,11 +52,23 @@ class JinmantiantangApi :
         .addInterceptor(ScrambledImageInterceptor)
         .build()
 
+    // 域名管理器
+    private val domainManager = DomainManager(client, preferences)
+
     // 登录管理器
     private val authManager = AuthManager(preferences, client, cookieJar)
 
     // API 客户端
     private val apiClient = JmApiClient(client, preferences)
+
+    init {
+        // 尝试更新域名列表（后台执行，不阻塞初始化）
+        try {
+            domainManager.tryUpdateDomains()
+        } catch (e: Exception) {
+            // 更新失败不影响扩展使用
+        }
+    }
 
     // 基础 URL（动态获取）
     override val baseUrl: String
