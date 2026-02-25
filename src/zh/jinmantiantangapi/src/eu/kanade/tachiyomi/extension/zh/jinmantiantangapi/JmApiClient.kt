@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -104,18 +105,11 @@ class JmApiClient(
      * 构建完整 URL
      */
     private fun buildUrl(endpoint: String, params: Map<String, String>): String {
-        val baseUrl = getBaseUrl()
-        val url = StringBuilder("$baseUrl$endpoint")
-
-        if (params.isNotEmpty()) {
-            url.append("?")
-            params.entries.forEachIndexed { index, (key, value) ->
-                if (index > 0) url.append("&")
-                url.append("$key=$value")
-            }
+        val builder = "${getBaseUrl()}$endpoint".toHttpUrl().newBuilder()
+        params.forEach { (key, value) ->
+            builder.addQueryParameter(key, value)
         }
-
-        return url.toString()
+        return builder.build().toString()
     }
 
     /**
@@ -145,12 +139,21 @@ class JmApiClient(
      * @param page 页码（从 1 开始）
      * @return 漫画列表页
      */
-    fun search(query: String, page: Int): MangasPage {
+    fun search(
+        query: String,
+        page: Int,
+        mainTag: String = "0",
+        sortBy: String = "mr",
+        time: String = "",
+    ): MangasPage {
         ensureInitialized() // 确保会话已初始化
-        val params = mapOf(
+        val params = mutableMapOf(
             "search_query" to query,
             "page" to page.toString(),
+            "main_tag" to mainTag,
+            "o" to sortBy,
         )
+        if (time.isNotEmpty()) params["t"] = time
         val json = executeGet(JmConstants.ENDPOINT_SEARCH, params)
         val data = getData(json)
         return parseMangaList(data)
@@ -168,6 +171,7 @@ class JmApiClient(
         categoryId: String = "",
         page: Int = 1,
         sortBy: String = "mr",
+        time: String = "",
     ): MangasPage {
         ensureInitialized() // 确保会话已初始化
         val params = mutableMapOf(
@@ -176,6 +180,9 @@ class JmApiClient(
         )
         if (categoryId.isNotEmpty()) {
             params["c"] = categoryId
+        }
+        if (time.isNotEmpty()) {
+            params["t"] = time
         }
         val json = executeGet(JmConstants.ENDPOINT_CATEGORIES_FILTER, params)
         val data = getData(json)
