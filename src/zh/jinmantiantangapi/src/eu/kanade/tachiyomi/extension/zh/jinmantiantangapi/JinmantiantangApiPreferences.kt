@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.extension.zh.jinmantiantangapi
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 
 /**
@@ -11,24 +10,7 @@ import androidx.preference.ListPreference
 internal fun getPreferenceList(
     context: Context,
     preferences: SharedPreferences,
-    authManager: AuthManager,
 ) = arrayOf(
-    // 用户名
-    EditTextPreference(context).apply {
-        key = JmConstants.PREF_USERNAME
-        title = "用户名"
-        summary = "禁漫天堂账号用户名"
-        setDefaultValue("")
-    },
-
-    // 密码
-    EditTextPreference(context).apply {
-        key = JmConstants.PREF_PASSWORD
-        title = "密码"
-        summary = "禁漫天堂账号密码（警告：明文存储）"
-        setDefaultValue("")
-    },
-
     // API 域名选择
     ListPreference(context).apply {
         key = JmConstants.PREF_API_DOMAIN_INDEX

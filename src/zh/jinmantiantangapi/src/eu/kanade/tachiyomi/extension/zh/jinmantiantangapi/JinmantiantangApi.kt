@@ -21,8 +21,8 @@ import uy.kohesive.injekt.api.get
 /**
  * 禁漫天堂 API 版插件
  *
- * 基于移动端 API 实现，支持登录功能
- * 与网页版插件并存，专注于需要登录的功能
+ * 基于移动端 API 实现
+ * 与网页版插件并存，专注于 API 版浏览体验
  */
 class JinmantiantangApi :
     HttpSource(),
@@ -57,9 +57,6 @@ class JinmantiantangApi :
     // 域名管理器
     private val domainManager = DomainManager(client, preferences)
 
-    // 登录管理器
-    private val authManager = AuthManager(preferences, client, cookieJar)
-
     // API 客户端
     private val apiClient = JmApiClient(client, preferences)
 
@@ -70,6 +67,12 @@ class JinmantiantangApi :
         } catch (e: Exception) {
             // 更新失败不影响扩展使用
         }
+
+        // 移除已废弃的登录功能残留凭证（明文）
+        preferences.edit()
+            .remove(JmConstants.PREF_USERNAME)
+            .remove(JmConstants.PREF_PASSWORD)
+            .apply()
     }
 
     // 基础 URL（动态获取）
@@ -225,7 +228,7 @@ class JinmantiantangApi :
     // ==================== 设置界面 ====================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        getPreferenceList(screen.context, preferences, authManager).forEach(screen::addPreference)
+        getPreferenceList(screen.context, preferences).forEach(screen::addPreference)
     }
 
     // ==================== 过滤器 ====================

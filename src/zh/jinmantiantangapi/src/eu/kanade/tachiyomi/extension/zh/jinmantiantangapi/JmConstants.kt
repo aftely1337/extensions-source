@@ -90,13 +90,13 @@ object JmConstants {
 
     // ==================== SharedPreferences 键名 ====================
 
-    /** 用户名 */
+    /** 已废弃：历史登录用户名（用于清理遗留数据） */
     const val PREF_USERNAME = "username"
 
-    /** 密码 */
+    /** 已废弃：历史登录密码（用于清理遗留数据） */
     const val PREF_PASSWORD = "password"
 
-    /** 登录 Cookie */
+    /** 会话 Cookie（匿名/登录均可能使用） */
     const val PREF_LOGIN_COOKIE = "login_cookie"
 
     /** API 域名索引 */
