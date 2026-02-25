@@ -130,12 +130,12 @@ class JinmantiantangApi :
     override fun mangaDetailsRequest(manga: SManga): Request {
         // 从 URL 中提取漫画 ID
         val albumId = manga.url.substringAfter("/album/").substringBefore("/")
-        return GET("$baseUrl${JmConstants.ENDPOINT_ALBUM}/$albumId", headers)
+        return GET("$baseUrl${JmConstants.ENDPOINT_ALBUM}?id=$albumId", headers)
     }
 
     override fun mangaDetailsParse(response: Response): SManga {
         // 从 URL 中提取漫画 ID
-        val albumId = response.request.url.pathSegments.last()
+        val albumId = response.request.url.queryParameter("id") ?: response.request.url.pathSegments.last()
         return apiClient.getAlbumDetail(albumId)
     }
 
@@ -144,12 +144,12 @@ class JinmantiantangApi :
     override fun chapterListRequest(manga: SManga): Request {
         // 从 URL 中提取漫画 ID
         val albumId = manga.url.substringAfter("/album/").substringBefore("/")
-        return GET("$baseUrl${JmConstants.ENDPOINT_ALBUM}/$albumId", headers)
+        return GET("$baseUrl${JmConstants.ENDPOINT_ALBUM}?id=$albumId", headers)
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
         // 从 URL 中提取漫画 ID
-        val albumId = response.request.url.pathSegments.last()
+        val albumId = response.request.url.queryParameter("id") ?: response.request.url.pathSegments.last()
         return apiClient.getChapterList(albumId)
     }
 
@@ -158,12 +158,12 @@ class JinmantiantangApi :
     override fun pageListRequest(chapter: SChapter): Request {
         // 从 URL 中提取章节 ID
         val chapterId = chapter.url.substringAfter("/chapter/").substringBefore("/")
-        return GET("$baseUrl${JmConstants.ENDPOINT_CHAPTER}/$chapterId", headers)
+        return GET("$baseUrl${JmConstants.ENDPOINT_CHAPTER}?id=$chapterId&mode=vertical", headers)
     }
 
     override fun pageListParse(response: Response): List<Page> {
         // 从 URL 中提取章节 ID
-        val chapterId = response.request.url.pathSegments.last()
+        val chapterId = response.request.url.queryParameter("id") ?: response.request.url.pathSegments.last()
         return apiClient.getChapterPages(chapterId)
     }
 

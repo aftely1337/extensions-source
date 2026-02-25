@@ -364,7 +364,11 @@ class JmApiClient(
         if (episodeArray == null || episodeArray.length() == 0) {
             // 单章节漫画
             val chapter = SChapter.create().apply {
-                url = "/chapter/${data.optString("id", albumId)}"
+                val fallbackChapterId = data.optString("id", "")
+                    .takeIf { it.isNotBlank() && it != "0" }
+                    ?: data.optString("series_id", "").takeIf { it.isNotBlank() && it != "0" }
+                    ?: albumId
+                url = "/chapter/$fallbackChapterId"
                 name = "单章节"
                 chapter_number = 1f
                 date_upload = parseDate(data.optString("created_at", data.optString("addtime", "")))
@@ -404,6 +408,9 @@ class JmApiClient(
             ?: throw Exception("章节数据缺少 images 字段")
 
         val chapterId = data.optString("id", "")
+            .takeIf { it.isNotBlank() && it != "0" }
+            ?: data.optString("series_id", "").takeIf { it.isNotBlank() && it != "0" }
+            ?: ""
         if (chapterId.isEmpty()) {
             throw Exception("章节数据缺少 id 字段")
         }
