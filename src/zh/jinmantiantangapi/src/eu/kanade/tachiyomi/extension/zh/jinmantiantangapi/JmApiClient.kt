@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 /**
  * 禁漫天堂 API 客户端
  *
@@ -107,7 +108,12 @@ class JmApiClient(
     private fun buildUrl(endpoint: String, params: Map<String, String>): String {
         val builder = "${getBaseUrl()}$endpoint".toHttpUrl().newBuilder()
         params.forEach { (key, value) ->
-            builder.addQueryParameter(key, value)
+            if (key == "search_query") {
+                val encoded = URLEncoder.encode(value, Charsets.UTF_8.name())
+                builder.addEncodedQueryParameter(key, encoded)
+            } else {
+                builder.addQueryParameter(key, value)
+            }
         }
         return builder.build().toString()
     }

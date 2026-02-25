@@ -1,7 +1,7 @@
 ext {
     extName = 'Jinman Tiantang (API)'
     extClass = '.JinmantiantangApi'
-    extVersionCode = 7
+    extVersionCode = 8
     isNsfw = true
 }
 

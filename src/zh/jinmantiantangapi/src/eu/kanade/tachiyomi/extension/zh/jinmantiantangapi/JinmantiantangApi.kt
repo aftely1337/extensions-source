@@ -297,7 +297,7 @@ class JinmantiantangApi :
         }
 
         val apiQuery = if (excluded.isEmpty()) {
-            trimmed // 无排除时尽量保留用户语法
+            rawQuery // 无排除时保留用户原始语法（包括尾部空格）
         } else {
             positiveTokens.joinToString(" ").trim() // 有排除时仅把正向词交给 API
         }
@@ -307,15 +307,20 @@ class JinmantiantangApi :
 
     private fun MangasPage.applyLocalExclusion(excludedTerms: List<String>): MangasPage {
         if (excludedTerms.isEmpty()) return this
-        val lowered = excludedTerms.map { it.lowercase() }
+        val lowered = excludedTerms.map { normalizeForMatch(it) }.filter { it.isNotBlank() }
         val filtered = mangas.filterNot { manga ->
-            val haystack = listOf(manga.title, manga.author, manga.genre, manga.description)
-                .joinToString(" ") { it.orEmpty() }
-                .lowercase()
+            val haystack = normalizeForMatch(
+                listOf(manga.title, manga.author, manga.genre, manga.description)
+                    .joinToString(" ") { it.orEmpty() },
+            )
             lowered.any { it in haystack }
         }
         return MangasPage(filtered, hasNextPage)
     }
+
+    private fun normalizeForMatch(value: String): String = value
+        .lowercase()
+        .replace(Regex("\\s+"), "")
 
     private data class CategoryOption(
         val label: String,
