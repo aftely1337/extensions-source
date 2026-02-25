@@ -6,7 +6,7 @@ import okhttp3.Response
 /**
  * API 请求签名拦截器
  *
- * 为每个 API 请求自动添加 token 和 tokenparam 参数
+ * 为每个 API 请求自动添加 token 和 tokenparam 请求头
  * 这是移动端 API 的必需认证机制
  */
 class ApiSignatureInterceptor : Interceptor {
@@ -22,24 +22,32 @@ class ApiSignatureInterceptor : Interceptor {
         val useSpecialSecret = originalUrl.toString().contains("/chapter_view_template")
 
         // 生成 token 和 tokenparam
+        // 关键：GET 请求的 tokenparam 需要使用空版本号，形成 "timestamp,"
+        // POST 请求才携带 APP_VERSION（如登录等）
+        val useEmptyVersion = originalRequest.method.equals("GET", ignoreCase = true)
         val (token, tokenparam) = if (useSpecialSecret) {
-            JmCryptoTool.generateSpecialToken(timestamp)
+            if (useEmptyVersion) {
+                JmCryptoTool.generateSpecialToken(timestamp).let { (specialToken, _) ->
+                    specialToken to "$timestamp,"
+                }
+            } else {
+                JmCryptoTool.generateSpecialToken(timestamp)
+            }
         } else {
-            JmCryptoTool.generateToken(timestamp)
+            if (useEmptyVersion) {
+                JmCryptoTool.generateToken(timestamp, version = "")
+            } else {
+                JmCryptoTool.generateToken(timestamp)
+            }
         }
-
-        // 构建新 URL，添加签名参数
-        val newUrl = originalUrl.newBuilder()
-            .addQueryParameter("token", token)
-            .addQueryParameter("tokenparam", tokenparam)
-            .build()
 
         // 构建新请求
         val newRequest = originalRequest.newBuilder()
-            .url(newUrl)
-            .addHeader("User-Agent", JmConstants.USER_AGENT)
-            .addHeader("Accept-Encoding", "gzip, deflate")
-            .addHeader("X-Requested-With", JmConstants.IMAGE_X_REQUESTED_WITH) // 必需：标识来自官方应用
+            .header("token", token)
+            .header("tokenparam", tokenparam)
+            .header("User-Agent", JmConstants.USER_AGENT)
+            .header("Accept-Encoding", "gzip, deflate")
+            .header("X-Requested-With", JmConstants.IMAGE_X_REQUESTED_WITH) // 必需：标识来自官方应用
             .build()
 
         // 执行请求
