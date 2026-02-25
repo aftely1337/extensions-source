@@ -181,11 +181,11 @@ object JmCryptoTool {
     /**
      * 解密域名服务器返回的域名列表
      *
-     * 域名服务器返回加密的域名列表，解密流程：
+     * 域名服务器返回加密的 JSON 数据，解密流程：
      * 1. Base64 解码
      * 2. AES-ECB 解密（key = MD5(API_DOMAIN_SERVER_SECRET)）
      * 3. UTF-8 解码为文本
-     * 4. 按行分割得到域名列表
+     * 4. 解析 JSON 并提取域名
      *
      * @param encryptedData 加密的 Base64 字符串
      * @return 域名列表
@@ -197,22 +197,87 @@ object JmCryptoTool {
             val keyString = md5(JmConstants.API_DOMAIN_SERVER_SECRET)
             val keyBytes = keyString.toByteArray(Charsets.UTF_8)
             val secretKey = SecretKeySpec(keyBytes, "AES")
-
             // 2. Base64 解码
             val encryptedBytes = Base64.decode(encryptedData, Base64.DEFAULT)
-
             // 3. AES-ECB 解密
             val cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")
             cipher.init(Cipher.DECRYPT_MODE, secretKey)
             val decryptedBytes = cipher.doFinal(encryptedBytes)
-
-            // 4. UTF-8 解码并按行分割
+            // 4. UTF-8 解码
             val decryptedText = String(decryptedBytes, Charsets.UTF_8)
-            return decryptedText.lines()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+            // 5. 解析 JSON 并提取域名
+            return extractDomainsFromJson(decryptedText)
         } catch (e: Exception) {
             throw Exception("解密域名列表失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 从 JSON 数据中提取域名
+     *
+     * 支持多种 JSON 格式：
+     * - 简单数组：["domain1", "domain2"]
+     * - 嵌套数组：[["domain1", "label1"], ["domain2", "label2"]]
+     * - 对象格式：{"key": ["domain1", "domain2"]} 或 {"key": [["domain1", "label1"]]}
+     */
+    private fun extractDomainsFromJson(jsonText: String): List<String> {
+        val domains = mutableListOf<String>()
+        try {
+            val json = org.json.JSONObject(jsonText)
+            // 遍历所有键
+            json.keys().forEach { key ->
+                val value = json.get(key)
+                extractDomainsFromValue(value, domains)
+            }
+        } catch (e: Exception) {
+            // 如果不是对象，尝试作为数组解析
+            try {
+                val jsonArray = org.json.JSONArray(jsonText)
+                extractDomainsFromValue(jsonArray, domains)
+            } catch (e2: Exception) {
+                // 如果都失败，按行分割作为后备方案
+                jsonText.lines()
+                    .map { it.trim().removeSurrounding("\"") }
+                    .filter { it.isNotEmpty() && it.contains(".") }
+                    .forEach { domains.add(it) }
+            }
+        }
+        return domains.distinct()
+    }
+
+    /**
+     * 递归提取域名
+     */
+    private fun extractDomainsFromValue(value: Any, domains: MutableList<String>) {
+        when (value) {
+            is org.json.JSONArray -> {
+                for (i in 0 until value.length()) {
+                    val item = value.get(i)
+                    when (item) {
+                        is String -> {
+                            // 简单字符串，检查是否是域名
+                            if (item.contains(".") && !item.contains(":")) {
+                                domains.add(item)
+                            }
+                        }
+                        is org.json.JSONArray -> {
+                            // 嵌套数组 ["domain", "label"]，取第一个元素
+                            if (item.length() > 0) {
+                                val first = item.get(0)
+                                if (first is String && first.contains(".")) {
+                                    domains.add(first)
+                                }
+                            }
+                        }
+                        else -> extractDomainsFromValue(item, domains)
+                    }
+                }
+            }
+            is String -> {
+                if (value.contains(".") && !value.contains(":")) {
+                    domains.add(value)
+                }
+            }
         }
     }
 }
