@@ -1,0 +1,42 @@
+name: Build jinmantiantangapi
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/zh/jinmantiantangapi/**'
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build jinmantiantangapi extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+      
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      
+      - name: Build jinmantiantangapi (debug - no signing required)
+        run: ./gradlew :src:zh:jinmantiantangapi:assembleDebug
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: jinmantiantangapi-debug
+          path: src/zh/jinmantiantangapi/build/outputs/apk/debug/*.apk
+          retention-days: 30
