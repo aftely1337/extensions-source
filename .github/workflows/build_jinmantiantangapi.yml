@@ -37,7 +37,7 @@ jobs:
       
       - name: Build jinmantiantangapi (release)
         env:
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          ALIAS: ${{ secrets.ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
         run: ./gradlew :src:zh:jinmantiantangapi:assembleRelease
