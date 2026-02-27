@@ -236,7 +236,7 @@ object JmCryptoTool {
             // 遍历所有键
             json.keys().forEach { key ->
                 val value = json.get(key)
-                extractDomainOptionsFromValue(value, domains, inheritedLabel = sanitizeLabel(key))
+                extractDomainOptionsFromValue(value, domains)
             }
         } catch (e: Exception) {
             // 如果不是对象，尝试作为数组解析
