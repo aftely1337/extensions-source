@@ -10,6 +10,10 @@ import javax.crypto.spec.SecretKeySpec
  * 实现 Token 签名、AES 解密等核心加密功能
  */
 object JmCryptoTool {
+    data class DomainOption(
+        val domain: String,
+        val label: String? = null,
+    )
 
     /**
      * 生成 API 请求所需的 token 和 tokenparam
@@ -191,7 +195,12 @@ object JmCryptoTool {
      * @return 域名列表
      * @throws Exception 解密失败时抛出异常
      */
-    fun decryptDomainList(encryptedData: String): List<String> {
+    fun decryptDomainList(encryptedData: String): List<String> = decryptDomainOptions(encryptedData).map { it.domain }
+
+    /**
+     * 解密域名服务器返回的域名列表（保留显示标签）
+     */
+    fun decryptDomainOptions(encryptedData: String): List<DomainOption> {
         try {
             // 1. 生成 AES 密钥：MD5(API_DOMAIN_SERVER_SECRET)
             val keyString = md5(JmConstants.API_DOMAIN_SERVER_SECRET)
@@ -205,8 +214,8 @@ object JmCryptoTool {
             val decryptedBytes = cipher.doFinal(encryptedBytes)
             // 4. UTF-8 解码
             val decryptedText = String(decryptedBytes, Charsets.UTF_8)
-            // 5. 解析 JSON 并提取域名
-            return extractDomainsFromJson(decryptedText)
+            // 5. 解析 JSON 并提取域名+标签
+            return extractDomainOptionsFromJson(decryptedText)
         } catch (e: Exception) {
             throw Exception("解密域名列表失败: ${e.message}", e)
         }
@@ -220,35 +229,39 @@ object JmCryptoTool {
      * - 嵌套数组：[["domain1", "label1"], ["domain2", "label2"]]
      * - 对象格式：{"key": ["domain1", "domain2"]} 或 {"key": [["domain1", "label1"]]}
      */
-    private fun extractDomainsFromJson(jsonText: String): List<String> {
-        val domains = mutableListOf<String>()
+    private fun extractDomainOptionsFromJson(jsonText: String): List<DomainOption> {
+        val domains = mutableListOf<DomainOption>()
         try {
             val json = org.json.JSONObject(jsonText)
             // 遍历所有键
             json.keys().forEach { key ->
                 val value = json.get(key)
-                extractDomainsFromValue(value, domains)
+                extractDomainOptionsFromValue(value, domains, inheritedLabel = sanitizeLabel(key))
             }
         } catch (e: Exception) {
             // 如果不是对象，尝试作为数组解析
             try {
                 val jsonArray = org.json.JSONArray(jsonText)
-                extractDomainsFromValue(jsonArray, domains)
+                extractDomainOptionsFromValue(jsonArray, domains)
             } catch (e2: Exception) {
                 // 如果都失败，按行分割作为后备方案
                 jsonText.lines()
                     .map { it.trim().removeSurrounding("\"") }
-                    .filter { it.isNotEmpty() && it.contains(".") }
-                    .forEach { domains.add(it) }
+                    .filter { isLikelyDomain(it) }
+                    .forEach { domains.add(DomainOption(domain = it)) }
             }
         }
-        return domains.distinct()
+        return mergeDomainOptions(domains)
     }
 
     /**
      * 递归提取域名
      */
-    private fun extractDomainsFromValue(value: Any, domains: MutableList<String>) {
+    private fun extractDomainOptionsFromValue(
+        value: Any,
+        domains: MutableList<DomainOption>,
+        inheritedLabel: String? = null,
+    ) {
         when (value) {
             is org.json.JSONArray -> {
                 for (i in 0 until value.length()) {
@@ -256,28 +269,92 @@ object JmCryptoTool {
                     when (item) {
                         is String -> {
                             // 简单字符串，检查是否是域名
-                            if (item.contains(".") && !item.contains(":")) {
-                                domains.add(item)
+                            if (isLikelyDomain(item)) {
+                                domains.add(DomainOption(domain = item, label = inheritedLabel))
                             }
                         }
                         is org.json.JSONArray -> {
                             // 嵌套数组 ["domain", "label"]，取第一个元素
                             if (item.length() > 0) {
                                 val first = item.get(0)
-                                if (first is String && first.contains(".")) {
-                                    domains.add(first)
+                                if (first is String && isLikelyDomain(first)) {
+                                    val label = buildList {
+                                        val second = if (item.length() > 1) item.opt(1) else null
+                                        if (second is String) add(second)
+                                        if (!inheritedLabel.isNullOrBlank()) add(inheritedLabel)
+                                    }.firstOrNull { !sanitizeLabel(it).isNullOrBlank() }
+                                    domains.add(DomainOption(domain = first, label = sanitizeLabel(label)))
+                                } else {
+                                    extractDomainOptionsFromValue(item, domains, inheritedLabel)
                                 }
                             }
                         }
-                        else -> extractDomainsFromValue(item, domains)
+                        is org.json.JSONObject -> extractDomainOptionsFromObject(item, domains, inheritedLabel)
+                        else -> extractDomainOptionsFromValue(item, domains, inheritedLabel)
                     }
                 }
             }
             is String -> {
-                if (value.contains(".") && !value.contains(":")) {
-                    domains.add(value)
+                if (isLikelyDomain(value)) {
+                    domains.add(DomainOption(domain = value, label = inheritedLabel))
                 }
             }
+            is org.json.JSONObject -> extractDomainOptionsFromObject(value, domains, inheritedLabel)
         }
+    }
+
+    private fun extractDomainOptionsFromObject(
+        obj: org.json.JSONObject,
+        domains: MutableList<DomainOption>,
+        inheritedLabel: String? = null,
+    ) {
+        val directDomain = sequenceOf("domain", "host", "url", "api_domain")
+            .mapNotNull { key -> obj.opt(key) as? String }
+            .firstOrNull { isLikelyDomain(it) }
+        val directLabel = sequenceOf("label", "name", "title", "desc", "line", "region")
+            .mapNotNull { key -> obj.opt(key) as? String }
+            .map { sanitizeLabel(it) }
+            .firstOrNull { !it.isNullOrBlank() }
+        if (directDomain != null) {
+            domains.add(DomainOption(directDomain, directLabel ?: inheritedLabel))
+            return
+        }
+
+        obj.keys().forEach { key ->
+            val child = obj.get(key)
+            val nextLabel = when {
+                isLikelyDomain(key) -> inheritedLabel
+                else -> sanitizeLabel(key) ?: inheritedLabel
+            }
+            extractDomainOptionsFromValue(child, domains, nextLabel)
+        }
+    }
+
+    private fun mergeDomainOptions(items: List<DomainOption>): List<DomainOption> {
+        val merged = LinkedHashMap<String, String?>()
+        items.forEach { item ->
+            val domain = item.domain.trim().removeSurrounding("\"")
+            if (!isLikelyDomain(domain)) return@forEach
+
+            val label = sanitizeLabel(item.label)
+            val existing = merged[domain]
+            if (existing.isNullOrBlank() || (!label.isNullOrBlank() && existing == domain)) {
+                merged[domain] = label
+            } else if (!merged.containsKey(domain)) {
+                merged[domain] = label
+            }
+        }
+
+        return merged.map { (domain, label) -> DomainOption(domain = domain, label = label) }
+    }
+
+    private fun sanitizeLabel(value: String?): String? {
+        val normalized = value?.trim()?.removeSurrounding("\"")
+        return normalized?.takeIf { it.isNotBlank() }
+    }
+
+    private fun isLikelyDomain(value: String): Boolean {
+        val normalized = value.trim().removeSurrounding("\"")
+        return normalized.contains('.') && !normalized.contains(':') && !normalized.contains('/')
     }
 }

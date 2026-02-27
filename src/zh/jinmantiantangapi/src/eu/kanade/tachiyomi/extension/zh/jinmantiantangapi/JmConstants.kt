@@ -98,4 +98,7 @@ object JmConstants {
 
     /** API 域名列表（动态更新） */
     const val PREF_API_DOMAIN_LIST = "api_domain_list"
+
+    /** API 域名显示标签列表（与域名索引对齐，JSON 数组） */
+    const val PREF_API_DOMAIN_LABEL_LIST = "api_domain_label_list"
 }
