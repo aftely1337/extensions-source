@@ -89,7 +89,7 @@ class JinmantiantangApi :
                 JmConstants.API_DOMAIN_LIST.joinToString(","),
             )?.split(",") ?: JmConstants.API_DOMAIN_LIST.toList()
 
-            val index = preferences.getInt(JmConstants.PREF_API_DOMAIN_INDEX, 0)
+            val index = preferences.getApiDomainIndex()
             val domain = domainList.getOrNull(index) ?: domainList.first()
             return "https://$domain"
         }

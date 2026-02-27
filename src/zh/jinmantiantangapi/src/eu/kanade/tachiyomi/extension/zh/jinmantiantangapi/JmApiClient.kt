@@ -75,7 +75,7 @@ class JmApiClient(
             JmConstants.API_DOMAIN_LIST.joinToString(","),
         )?.split(",") ?: JmConstants.API_DOMAIN_LIST.toList()
 
-        val index = preferences.getInt(JmConstants.PREF_API_DOMAIN_INDEX, 0)
+        val index = preferences.getApiDomainIndex()
         return domainList.getOrNull(index) ?: domainList.first()
     }
 
