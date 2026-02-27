@@ -296,8 +296,9 @@ class JinmantiantangApi :
                 CategoryOption("美漫", categoryId = "meiman"),
                 CategoryOption("短篇", categoryId = "short"),
                 CategoryOption("单本", categoryId = "single"),
-                CategoryOption("Cosplay", categoryId = "cosplay"),
-                CategoryOption("CG图集", categoryId = "CG"),
+                // 移动端 /categories/filter 对 cosplay / CG 的 c 参数结果不稳定，改走关键词搜索更接近原版体验
+                CategoryOption("Cosplay", keyword = "Cosplay"),
+                CategoryOption("CG图集", keyword = "CG"),
                 CategoryOption("P站", keyword = "PIXIV"),
                 CategoryOption("3D", keyword = "3D"),
                 CategoryOption("剧情", keyword = "劇情"),
