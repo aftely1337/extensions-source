@@ -298,7 +298,7 @@ class JinmantiantangApi :
                 CategoryOption("单本", categoryId = "single"),
                 // 移动端 /categories/filter 对 cosplay / CG 的 c 参数结果不稳定，改走关键词搜索更接近原版体验
                 CategoryOption("Cosplay", keyword = "Cosplay"),
-                CategoryOption("CG图集", keyword = "CG"),
+                CategoryOption("CG", keyword = "CG"),
                 CategoryOption("P站", keyword = "PIXIV"),
                 CategoryOption("3D", keyword = "3D"),
                 CategoryOption("剧情", keyword = "劇情"),
@@ -348,7 +348,7 @@ class JinmantiantangApi :
                 CategoryOption("兽交", keyword = "獸交"),
                 CategoryOption("亚人", keyword = "亞人"),
                 CategoryOption("魔物", keyword = "魔物"),
-                CategoryOption("CG集", keyword = "CG集"),
+                CategoryOption("CG 全彩", keyword = "CG 全彩"),
                 CategoryOption("重口", keyword = "重口"),
                 CategoryOption("猎奇", keyword = "獵奇"),
                 CategoryOption("非H", keyword = "非H"),
