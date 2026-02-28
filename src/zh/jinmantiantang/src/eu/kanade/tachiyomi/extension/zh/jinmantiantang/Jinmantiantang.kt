@@ -76,14 +76,14 @@ class Jinmantiantang :
 
     override fun popularMangaParse(response: Response): MangasPage {
         val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        return apiClient.getCategoryFilter(page = page, sortBy = "mv")
+        return apiClient.getCategoryFilter(page = page, sortBy = "mv").filterBlockedManga()
     }
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl${JmConstants.ENDPOINT_CATEGORIES_FILTER}?page=$page&o=mr", headers)
 
     override fun latestUpdatesParse(response: Response): MangasPage {
         val page = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
-        return apiClient.getCategoryFilter(page = page, sortBy = "mr")
+        return apiClient.getCategoryFilter(page = page, sortBy = "mr").filterBlockedManga()
     }
 
     private fun searchMangaByIdRequest(id: String) = GET("$baseUrl${JmConstants.ENDPOINT_ALBUM}?id=$id", headers)
@@ -91,7 +91,7 @@ class Jinmantiantang :
     private fun searchMangaByIdParse(id: String): MangasPage {
         val manga = apiClient.getAlbumDetail(id)
         manga.url = "/album/$id/"
-        return MangasPage(listOf(manga), false)
+        return MangasPage(listOf(manga), false).filterBlockedManga()
     }
 
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = if (query.startsWith(PREFIX_ID_SEARCH_NO_COLON, true) || query.toIntOrNull() != null) {
@@ -155,7 +155,7 @@ class Jinmantiantang :
                 page = page,
                 sortBy = sortBy,
                 time = time,
-            )
+            ).filterBlockedManga()
         } else {
             apiClient.search(
                 query = query,
@@ -163,9 +163,35 @@ class Jinmantiantang :
                 mainTag = url.queryParameter("main_tag") ?: "0",
                 sortBy = sortBy,
                 time = time,
-            )
+            ).filterBlockedManga()
         }
     }
+
+    private fun MangasPage.filterBlockedManga(): MangasPage {
+        val blockedWords = getBlockedWords()
+        if (blockedWords.isEmpty()) return this
+
+        val filteredMangas = mangas.filterNot { manga -> manga.matchesBlockedWords(blockedWords) }
+        return MangasPage(filteredMangas, hasNextPage)
+    }
+
+    private fun SManga.matchesBlockedWords(blockedWords: List<String>): Boolean {
+        val haystacks = listOf(title, genre)
+            .map { it.orEmpty().lowercase() }
+            .filter { it.isNotBlank() }
+
+        return blockedWords.any { blockedWord ->
+            haystacks.any { text -> text.contains(blockedWord) }
+        }
+    }
+
+    private fun getBlockedWords(): List<String> = preferences.getString(JmConstants.PREF_BLOCK_WORDS, null)
+        .orEmpty()
+        .substringBefore("//")
+        .split(',', ' ', '\n', '\r', '\t')
+        .map { it.trim().lowercase() }
+        .filter { it.isNotEmpty() }
+        .distinct()
 
     override fun mangaDetailsRequest(manga: SManga): Request {
         val albumId = extractAlbumId(manga.url)
