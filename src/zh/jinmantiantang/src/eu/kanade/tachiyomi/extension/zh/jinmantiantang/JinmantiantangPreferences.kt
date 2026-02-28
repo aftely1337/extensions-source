@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.extension.zh.jinmantiantang
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 
 internal fun getPreferenceList(
@@ -27,6 +28,15 @@ internal fun getPreferenceList(
         entryValues = Array(domainList.size) { it.toString() }
         summary = "当前: %s\n线路会自动更新，切换后需要重启应用"
         setDefaultValue("0")
+    },
+
+    EditTextPreference(context).apply {
+        key = JmConstants.PREF_BLOCK_WORDS
+        title = "屏蔽词列表"
+        dialogTitle = "屏蔽词列表"
+        dialogMessage = "按标题和标签在本地隐藏漫画。支持空格、逗号或换行分隔；\"//\" 后面的内容会被忽略。\n例如：YAOI 扶他 獵奇 韓漫"
+        summary = "按标题和标签在本地隐藏漫画；支持空格、逗号或换行分隔，\"//\" 后面的内容会被忽略"
+        setDefaultValue("")
     },
 )
 

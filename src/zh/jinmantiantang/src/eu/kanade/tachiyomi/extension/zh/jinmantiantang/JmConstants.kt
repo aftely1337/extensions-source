@@ -37,4 +37,5 @@ object JmConstants {
     const val PREF_API_DOMAIN_INDEX = "api_domain_index"
     const val PREF_API_DOMAIN_LIST = "api_domain_list"
     const val PREF_API_DOMAIN_LABEL_LIST = "api_domain_label_list"
+    const val PREF_BLOCK_WORDS = "BLOCK_GENRES_LIST"
 }
