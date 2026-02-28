@@ -20,8 +20,14 @@ object ScrambledImageInterceptor : Interceptor {
         val url = request.url
         val response = chain.proceed(request)
         if (!url.toString().contains("media/photos", ignoreCase = true)) return response // 对非漫画图片连接直接放行
+        val fileName = url.pathSegments.lastOrNull().orEmpty()
+        val contentType = response.header("Content-Type").orEmpty()
+
+        if (isGif(fileName, contentType)) return response
+        if (isAnimatedWebp(fileName, contentType, response)) return response
+
         val pathSegments = url.pathSegments
-        val aid = pathSegments[pathSegments.size - 2].toInt()
+        val aid = pathSegments.getOrNull(pathSegments.size - 2)?.toIntOrNull() ?: return response
         if (aid < SCRAMBLE_ID) return response // 对在漫画章节ID为220980之前的图片未进行图片分割,直接放行
         // 章节ID:220980(包含)之后的漫画(2020.10.27之后)图片进行了分割getRows倒序处理
         val responseBuilder = response.newBuilder()
@@ -61,6 +67,52 @@ object ScrambledImageInterceptor : Interceptor {
             else -> return 10
         }
         return 2 * (md5LastCharCode(aid.toString() + imgIndex) % modulus) + 2
+    }
+
+    private fun isGif(fileName: String, contentType: String): Boolean = fileName.endsWith(".gif", ignoreCase = true) ||
+        contentType.contains("image/gif", ignoreCase = true)
+
+    private fun isAnimatedWebp(fileName: String, contentType: String, response: Response): Boolean {
+        val maybeWebp = fileName.endsWith(".webp", ignoreCase = true) ||
+            contentType.contains("image/webp", ignoreCase = true)
+        if (!maybeWebp) return false
+
+        if (response.header("Content-Encoding").equals("gzip", ignoreCase = true)) return false
+
+        val head = try {
+            response.peekBody(64 * 1024).bytes()
+        } catch (_: Exception) {
+            return false
+        }
+        return looksLikeAnimatedWebp(head)
+    }
+
+    private fun looksLikeAnimatedWebp(data: ByteArray): Boolean {
+        if (data.size < 16) return false
+        if (!(data[0] == 'R'.code.toByte() && data[1] == 'I'.code.toByte() && data[2] == 'F'.code.toByte() && data[3] == 'F'.code.toByte())) return false
+        if (!(data[8] == 'W'.code.toByte() && data[9] == 'E'.code.toByte() && data[10] == 'B'.code.toByte() && data[11] == 'P'.code.toByte())) return false
+
+        val anim = byteArrayOf('A'.code.toByte(), 'N'.code.toByte(), 'I'.code.toByte(), 'M'.code.toByte())
+        for (i in 12..(data.size - anim.size)) {
+            var matched = true
+            for (j in anim.indices) {
+                if (data[i + j] != anim[j]) {
+                    matched = false
+                    break
+                }
+            }
+            if (matched) return true
+        }
+
+        if (
+            data.size > 21 &&
+            data[12] == 'V'.code.toByte() && data[13] == 'P'.code.toByte() && data[14] == '8'.code.toByte() && data[15] == 'X'.code.toByte()
+        ) {
+            val flags = data[20].toInt() and 0xFF
+            if ((flags and 0x02) != 0) return true
+        }
+
+        return false
     }
 
     // 对被分割的图片进行分割,排序处理
