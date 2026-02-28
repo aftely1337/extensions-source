@@ -2,6 +2,12 @@ name: Build Jinmantiantang APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - build/jinmantiantang-apk
+    paths:
+      - '.github/workflows/build_jinmantiantang_apk.yml'
+      - 'src/zh/jinmantiantang/**'
 
 permissions: {}
 
