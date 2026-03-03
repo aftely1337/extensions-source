@@ -163,8 +163,65 @@ class Jinmantiantang :
                 mainTag = url.queryParameter("main_tag") ?: "0",
                 sortBy = sortBy,
                 time = time,
-            ).filterBlockedManga()
+            ).filterSearchQuery(query)
+                .filterBlockedManga()
         }
+    }
+
+    private fun MangasPage.filterSearchQuery(query: String): MangasPage {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return this
+
+        val terms = parseSearchTerms(trimmed)
+        if (terms.required.isEmpty() && terms.excluded.isEmpty() && terms.optional.isEmpty()) return this
+
+        val filteredMangas = mangas.filter { manga -> manga.matchesSearchTerms(terms) }
+        return MangasPage(filteredMangas, hasNextPage)
+    }
+
+    private data class SearchTerms(
+        val required: List<String>,
+        val excluded: List<String>,
+        val optional: List<String>,
+    )
+
+    private fun parseSearchTerms(query: String): SearchTerms {
+        val required = mutableListOf<String>()
+        val excluded = mutableListOf<String>()
+        val optional = mutableListOf<String>()
+
+        query.split(Regex("\\s+")).forEach { rawToken ->
+            if (rawToken.isBlank()) return@forEach
+
+            when {
+                rawToken.startsWith("+") && rawToken.length > 1 -> required += rawToken.drop(1)
+                rawToken.startsWith("-") && rawToken.length > 1 -> excluded += rawToken.drop(1)
+                else -> optional += rawToken
+            }
+        }
+
+        return SearchTerms(
+            required = required.map { it.normalizeFilterText() }.filter { it.isNotEmpty() },
+            excluded = excluded.map { it.normalizeFilterText() }.filter { it.isNotEmpty() },
+            optional = optional.map { it.normalizeFilterText() }.filter { it.isNotEmpty() },
+        )
+    }
+
+    private fun SManga.matchesSearchTerms(terms: SearchTerms): Boolean {
+        val haystacks = listOf(title, genre, author, description)
+            .map { it.orEmpty().normalizeFilterText() }
+            .filter { it.isNotBlank() }
+
+        if (terms.required.isNotEmpty() && terms.required.any { required -> haystacks.none { it.contains(required) } }) {
+            return false
+        }
+
+        if (terms.excluded.any { excluded -> haystacks.any { it.contains(excluded) } }) {
+            return false
+        }
+
+        if (terms.optional.isEmpty()) return true
+        return terms.optional.any { optional -> haystacks.any { it.contains(optional) } }
     }
 
     private fun MangasPage.filterBlockedManga(): MangasPage {
@@ -176,8 +233,8 @@ class Jinmantiantang :
     }
 
     private fun SManga.matchesBlockedWords(blockedWords: List<String>): Boolean {
-        val haystacks = listOf(title, genre)
-            .map { it.orEmpty().lowercase() }
+        val haystacks = listOf(title, genre, author, description)
+            .map { it.orEmpty().normalizeFilterText() }
             .filter { it.isNotBlank() }
 
         return blockedWords.any { blockedWord ->
@@ -189,9 +246,19 @@ class Jinmantiantang :
         .orEmpty()
         .substringBefore("//")
         .split(',', ' ', '\n', '\r', '\t')
-        .map { it.trim().lowercase() }
+        .map { it.trim().normalizeFilterText() }
         .filter { it.isNotEmpty() }
         .distinct()
+
+    private fun String.normalizeFilterText(): String = lowercase()
+        .replace(" ", "")
+        .replace("　", "")
+        .replace(",", "")
+        .replace("，", "")
+        .replace(".", "")
+        .replace("。", "")
+        .replace("-", "")
+        .replace("_", "")
 
     override fun mangaDetailsRequest(manga: SManga): Request {
         val albumId = extractAlbumId(manga.url)
