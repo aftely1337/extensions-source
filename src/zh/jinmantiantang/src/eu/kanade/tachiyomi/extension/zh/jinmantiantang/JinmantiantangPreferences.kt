@@ -35,13 +35,16 @@ internal fun getPreferenceList(
         title = "屏蔽词列表"
         dialogTitle = "屏蔽词列表"
         dialogMessage = "按标题和标签在本地隐藏漫画。支持空格、逗号或换行分隔；\"//\" 后面的内容会被忽略。\n例如：YAOI 扶他 獵奇 韓漫"
-        summaryProvider = EditTextPreference.SummaryProvider<EditTextPreference> {
-            it.text
-                ?.trim()
-                ?.takeIf(String::isNotEmpty)
-                ?: "未设置（按标题和标签在本地隐藏漫画）"
-        }
         setDefaultValue("")
+        summary = preferences.getString(key, null)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: "未设置（按标题和标签在本地隐藏漫画）"
+        setOnPreferenceChangeListener { _, newValue ->
+            val text = (newValue as? String).orEmpty().trim()
+            summary = text.ifEmpty { "未设置（按标题和标签在本地隐藏漫画）" }
+            true
+        }
     },
 )
 
