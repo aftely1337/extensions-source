@@ -32,6 +32,58 @@ class JmApiClient(
         }
         .joinToString(", ")
 
+    private fun parseTagLikeField(value: Any?): List<String> = when (value) {
+        null, JSONObject.NULL -> emptyList()
+        is String ->
+            value
+                .split(',', '，', '/', '|', '\n', '\r', '\t')
+                .map(::cleanString)
+                .filter { it.isNotBlank() }
+        is JSONArray -> buildList {
+            for (i in 0 until value.length()) {
+                addAll(parseTagLikeField(value.opt(i)))
+            }
+        }
+        is JSONObject -> {
+            val direct = listOf(
+                cleanString(value.optString("name", "")),
+                cleanString(value.optString("title", "")),
+                cleanString(value.optString("tag", "")),
+                cleanString(value.optString("label", "")),
+            ).filter { it.isNotBlank() }
+
+            if (direct.isNotEmpty()) {
+                direct
+            } else {
+                buildList {
+                    val keys = value.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        if (key in listOf("id", "aid", "uid", "sort", "order", "time")) continue
+                        addAll(parseTagLikeField(value.opt(key)))
+                    }
+                }
+            }
+        }
+        else -> cleanString(value.toString()).takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
+    }
+
+    private fun extractGenreFromJson(json: JSONObject): String {
+        val tags = buildList {
+            addAll(parseTagLikeField(json.opt("tags")))
+            addAll(parseTagLikeField(json.opt("tag")))
+            addAll(parseTagLikeField(json.opt("tag_list")))
+            addAll(parseTagLikeField(json.opt("keywords")))
+        }.distinct()
+
+        if (tags.isNotEmpty()) return tags.joinToString(", ")
+
+        return buildList {
+            addAll(parseTagLikeField(json.opt("category")))
+            addAll(parseTagLikeField(json.opt("category_sub")))
+        }.distinct().joinToString(", ")
+    }
+
     @Volatile
     private var initialized = false
 
@@ -204,6 +256,7 @@ class JmApiClient(
         val id = cleanString(json.optString("id", json.optString("aid", "")))
         url = "/album/$id/"
         title = cleanString(json.optString("name", json.optString("title", "")))
+        description = cleanString(json.optString("description", json.optString("intro", json.optString("brief", ""))))
 
         val imageUrl = cleanString(json.optString("image", ""))
         thumbnail_url = if (imageUrl.isNotEmpty()) {
@@ -223,15 +276,7 @@ class JmApiClient(
             ""
         }
 
-        val tagsArray = json.optJSONArray("tags")
-        genre = if (tagsArray != null && tagsArray.length() > 0) {
-            tagsArray.joinSafeStrings()
-        } else {
-            buildList {
-                cleanString(json.optJSONObject("category")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
-                cleanString(json.optJSONObject("category_sub")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
-            }.joinToString(", ")
-        }
+        genre = extractGenreFromJson(json)
     }
 
     private fun parseMangaDetail(data: JSONObject): SManga = SManga.create().apply {
@@ -255,15 +300,7 @@ class JmApiClient(
             cleanString(data.optString("author", ""))
         }
 
-        val tagsArray = data.optJSONArray("tags")
-        genre = if (tagsArray != null && tagsArray.length() > 0) {
-            tagsArray.joinSafeStrings()
-        } else {
-            buildList {
-                cleanString(data.optJSONObject("category")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
-                cleanString(data.optJSONObject("category_sub")?.optString("title")).takeIf { it.isNotBlank() }?.let(::add)
-            }.joinToString(", ")
-        }
+        genre = extractGenreFromJson(data)
 
         status = when (data.optString("status", "")) {
             "連載中" -> SManga.ONGOING
@@ -271,7 +308,7 @@ class JmApiClient(
             else -> SManga.UNKNOWN
         }
 
-        description = cleanString(data.optString("description", ""))
+        description = cleanString(data.optString("description", data.optString("intro", data.optString("brief", ""))))
     }
 
     private fun parseChapterList(data: JSONObject, albumId: String): List<SChapter> {
