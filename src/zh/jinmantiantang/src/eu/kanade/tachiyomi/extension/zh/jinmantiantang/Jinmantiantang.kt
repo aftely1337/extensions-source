@@ -362,7 +362,7 @@ class Jinmantiantang :
             .toMutableMap()
         val targetResultCount = page * ADVANCED_SEARCH_PAGE_SIZE + 1
 
-        repeat(MAX_ADVANCED_SEARCH_REMOTE_PAGES) {
+        for (_ in 0 until MAX_ADVANCED_SEARCH_REMOTE_PAGES) {
             var fetchedAny = false
 
             searchPlan.allCriteria().forEach { criterion ->
