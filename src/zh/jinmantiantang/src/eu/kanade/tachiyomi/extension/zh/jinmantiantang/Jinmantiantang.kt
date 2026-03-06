@@ -26,6 +26,9 @@ class Jinmantiantang :
         private const val LEGACY_PREF_USERNAME = "username"
         private const val LEGACY_PREF_PASSWORD = "password"
         private const val PREFIX_ID_SEARCH_NO_COLON = "JM"
+        private const val ADVANCED_SEARCH_PAGE_SIZE = 20
+        private const val MAX_ADVANCED_SEARCH_REMOTE_PAGES = 12
+        private const val BLOCK_WORD_SEARCH_SCOPE = "0"
         const val PREFIX_ID_SEARCH = "$PREFIX_ID_SEARCH_NO_COLON:"
     }
 
@@ -94,22 +97,53 @@ class Jinmantiantang :
         return MangasPage(listOf(manga), false).filterBlockedManga()
     }
 
-    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> = if (query.startsWith(PREFIX_ID_SEARCH_NO_COLON, true) || query.toIntOrNull() != null) {
-        val id = query.removePrefix(PREFIX_ID_SEARCH_NO_COLON).removePrefix(":")
-        client.newCall(searchMangaByIdRequest(id))
-            .asObservableSuccess()
-            .map { searchMangaByIdParse(id) }
-    } else {
-        super.fetchSearchManga(page, query, filters)
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        if (query.startsWith(PREFIX_ID_SEARCH_NO_COLON, true) || query.toIntOrNull() != null) {
+            val id = query.removePrefix(PREFIX_ID_SEARCH_NO_COLON).removePrefix(":")
+            return client.newCall(searchMangaByIdRequest(id))
+                .asObservableSuccess()
+                .map { searchMangaByIdParse(id) }
+        }
+
+        val parsedFilters = filters.toApiSearchFilters()
+        val resolvedQuery = resolveSearchQuery(
+            query = query,
+            allowCategoryRedirect = parsedFilters.categoryId.isBlank() && parsedFilters.categoryKeyword.isBlank(),
+        )
+        val searchPlan = buildServerSearchPlan(query, resolvedQuery, parsedFilters)
+
+        return if (searchPlan?.requiresServerSetSearch() == true) {
+            Observable.fromCallable {
+                fetchAdvancedSearchManga(
+                    page = page,
+                    searchPlan = searchPlan,
+                    parsedFilters = parsedFilters,
+                )
+            }
+        } else {
+            super.fetchSearchManga(page, query, filters)
+        }
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         val parsedFilters = filters.toApiSearchFilters()
-        val textQuery = query
+        val resolvedQuery = resolveSearchQuery(
+            query = query,
+            allowCategoryRedirect = parsedFilters.categoryId.isBlank() && parsedFilters.categoryKeyword.isBlank(),
+        )
+        val textQuery = resolvedQuery.textQuery
+        val rawTextQuery = resolvedQuery.rawTextQuery
         val filterKeyword = parsedFilters.categoryKeyword.trim()
+        val effectiveCategoryId = parsedFilters.categoryId.ifBlank { resolvedQuery.categoryId }
         val mergedQuery = when {
             textQuery.isNotBlank() && filterKeyword.isNotBlank() -> "$textQuery +$filterKeyword"
             textQuery.isNotBlank() -> textQuery
+            filterKeyword.isNotBlank() -> filterKeyword
+            else -> ""
+        }
+        val rawMergedQuery = when {
+            rawTextQuery.isNotBlank() && filterKeyword.isNotBlank() -> "$rawTextQuery +$filterKeyword"
+            rawTextQuery.isNotBlank() -> rawTextQuery
             filterKeyword.isNotBlank() -> filterKeyword
             else -> ""
         }
@@ -121,7 +155,7 @@ class Jinmantiantang :
                 .addQueryParameter("page", page.toString())
                 .addQueryParameter("o", parsedFilters.sortBy)
                 .apply {
-                    addQueryParameter("c", parsedFilters.categoryId)
+                    addQueryParameter("c", effectiveCategoryId)
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
                 }
                 .build()
@@ -133,6 +167,8 @@ class Jinmantiantang :
                 .addQueryParameter("main_tag", parsedFilters.mainTag)
                 .addQueryParameter("o", parsedFilters.sortBy)
                 .apply {
+                    rawMergedQuery.takeIf { it.isNotBlank() && it != mergedQuery }
+                        ?.let { addQueryParameter("raw_search_query", it) }
                     parsedFilters.time.takeIf { it.isNotBlank() }?.let { addQueryParameter("t", it) }
                 }
                 .build()
@@ -163,19 +199,27 @@ class Jinmantiantang :
                 mainTag = url.queryParameter("main_tag") ?: "0",
                 sortBy = sortBy,
                 time = time,
-            ).filterSearchQuery(query)
+            ).filterSearchQuery(
+                query = query,
+                rawQuery = url.queryParameter("raw_search_query") ?: query,
+            )
                 .filterBlockedManga()
         }
     }
 
-    private fun MangasPage.filterSearchQuery(query: String): MangasPage {
-        val trimmed = query.trim()
-        if (trimmed.isEmpty()) return this
+    private fun MangasPage.filterSearchQuery(query: String, rawQuery: String = query): MangasPage {
+        val termVariants = buildList {
+            parseSearchTerms(query.trim()).takeIf { it.hasTerms() }?.let(::add)
+            parseSearchTerms(rawQuery.trim()).takeIf { it.hasTerms() && rawQuery.trim() != query.trim() }?.let(::add)
+        }
+        if (termVariants.isEmpty()) return this
 
-        val terms = parseSearchTerms(trimmed)
-        if (terms.required.isEmpty() && terms.excluded.isEmpty() && terms.optional.isEmpty()) return this
+        val shouldApplyFilter = termVariants.any(SearchTerms::requiresLocalFiltering)
+        if (!shouldApplyFilter) return this
 
-        val filteredMangas = mangas.filter { manga -> manga.matchesSearchTerms(terms) }
+        val filteredMangas = mangas.filter { manga ->
+            termVariants.any { terms -> manga.matchesSearchTerms(terms) }
+        }
         return MangasPage(filteredMangas, hasNextPage)
     }
 
@@ -183,7 +227,248 @@ class Jinmantiantang :
         val required: List<String>,
         val excluded: List<String>,
         val optional: List<String>,
+    ) {
+        fun hasTerms(): Boolean = required.isNotEmpty() || excluded.isNotEmpty() || optional.isNotEmpty()
+
+        fun requiresLocalFiltering(): Boolean = required.isNotEmpty() || excluded.isNotEmpty() || optional.size > 1
+    }
+
+    private sealed class SearchCriterion {
+        abstract val stableKey: String
+
+        data class Keyword(
+            val query: String,
+            val mainTagOverride: String? = null,
+        ) : SearchCriterion() {
+            override val stableKey: String = "keyword:${mainTagOverride ?: "default"}:$query"
+        }
+
+        data class Category(
+            val categoryId: String,
+        ) : SearchCriterion() {
+            override val stableKey: String = "category:$categoryId"
+        }
+    }
+
+    private data class ServerSearchPlan(
+        val required: List<SearchCriterion>,
+        val optional: List<SearchCriterion>,
+        val exclude: List<SearchCriterion>,
+    ) {
+        fun requiresServerSetSearch(): Boolean = required.isNotEmpty() || optional.size > 1 || exclude.isNotEmpty()
+
+        fun allCriteria(): List<SearchCriterion> = (required + optional + exclude)
+            .distinctBy(SearchCriterion::stableKey)
+    }
+
+    private data class SearchCriterionAccumulator(
+        val mangas: MutableList<SManga> = mutableListOf(),
+        val ids: MutableSet<String> = linkedSetOf(),
+        var nextPage: Int = 1,
+        var hasMore: Boolean = true,
     )
+
+    private data class ResolvedSearchQuery(
+        val textQuery: String = "",
+        val rawTextQuery: String = "",
+        val categoryId: String = "",
+    )
+
+    private fun buildServerSearchPlan(
+        rawQuery: String,
+        resolvedQuery: ResolvedSearchQuery,
+        parsedFilters: ApiSearchFilters,
+    ): ServerSearchPlan? {
+        val required = linkedMapOf<String, SearchCriterion>()
+        val optional = linkedMapOf<String, SearchCriterion>()
+        val exclude = linkedMapOf<String, SearchCriterion>()
+
+        fun addCriterion(target: MutableMap<String, SearchCriterion>, criterion: SearchCriterion?) {
+            if (criterion == null) return
+            target.putIfAbsent(criterion.stableKey, criterion)
+        }
+
+        rawQuery.split(Regex("\\s+")).forEach { rawToken ->
+            if (rawToken.isBlank()) return@forEach
+
+            val isExcluded = rawToken.startsWith("-") && rawToken.length > 1
+            val token = when {
+                rawToken.startsWith("+") && rawToken.length > 1 -> rawToken.drop(1)
+                rawToken.startsWith("-") && rawToken.length > 1 -> rawToken.drop(1)
+                else -> rawToken
+            }
+
+            val criterion = buildSearchCriterion(token)
+            if (isExcluded) {
+                addCriterion(exclude, criterion)
+            } else if (rawToken.startsWith("+") && rawToken.length > 1) {
+                addCriterion(required, criterion)
+            } else {
+                addCriterion(optional, criterion)
+            }
+        }
+
+        addCriterion(
+            required,
+            parsedFilters.categoryId.takeIf { it.isNotBlank() }
+                ?.let(SearchCriterion::Category),
+        )
+        addCriterion(
+            required,
+            parsedFilters.categoryKeyword.takeIf { it.isNotBlank() }
+                ?.let { SearchCriterion.Keyword(it) },
+        )
+
+        if (required.isEmpty() && optional.isEmpty() && resolvedQuery.categoryId.isNotBlank()) {
+            addCriterion(required, SearchCriterion.Category(resolvedQuery.categoryId))
+        }
+
+        getBlockedWords().forEach { blockedWord ->
+            addCriterion(
+                exclude,
+                buildSearchCriterion(
+                    token = blockedWord,
+                    mainTagOverride = BLOCK_WORD_SEARCH_SCOPE,
+                ),
+            )
+        }
+
+        if (required.isEmpty() && optional.isEmpty()) return null
+        return ServerSearchPlan(
+            required = required.values.toList(),
+            optional = optional.values.toList(),
+            exclude = exclude.values.toList(),
+        )
+    }
+
+    private fun buildSearchCriterion(token: String, mainTagOverride: String? = null): SearchCriterion? {
+        val trimmed = token.trim()
+        if (trimmed.isEmpty()) return null
+
+        val matchedOption = findCategoryOptionBySearchToken(trimmed)
+        return when {
+            matchedOption?.categoryId?.isNotBlank() == true -> SearchCriterion.Category(matchedOption.categoryId)
+            else -> SearchCriterion.Keyword(matchedOption?.keyword?.takeIf { it.isNotBlank() } ?: trimmed, mainTagOverride)
+        }
+    }
+
+    private fun fetchAdvancedSearchManga(
+        page: Int,
+        searchPlan: ServerSearchPlan,
+        parsedFilters: ApiSearchFilters,
+    ): MangasPage {
+        val accumulators = searchPlan.allCriteria()
+            .associateWith { SearchCriterionAccumulator() }
+            .toMutableMap()
+        val targetResultCount = page * ADVANCED_SEARCH_PAGE_SIZE + 1
+
+        repeat(MAX_ADVANCED_SEARCH_REMOTE_PAGES) {
+            var fetchedAny = false
+
+            searchPlan.allCriteria().forEach { criterion ->
+                val accumulator = accumulators.getValue(criterion)
+                if (!accumulator.hasMore) return@forEach
+
+                val result = fetchSearchCriterionPage(
+                    criterion = criterion,
+                    page = accumulator.nextPage,
+                    parsedFilters = parsedFilters,
+                )
+                accumulator.nextPage += 1
+                accumulator.hasMore = result.hasNextPage && result.mangas.isNotEmpty()
+                result.mangas.forEach { manga ->
+                    val albumId = extractAlbumId(manga.url)
+                    if (albumId.isNotBlank() && accumulator.ids.add(albumId)) {
+                        accumulator.mangas += manga
+                    }
+                }
+                fetchedAny = true
+            }
+
+            val combinedResults = combineServerSearchResults(searchPlan, accumulators)
+            if (combinedResults.size >= targetResultCount || !fetchedAny || accumulators.values.all { !it.hasMore }) {
+                break
+            }
+        }
+
+        val finalResults = combineServerSearchResults(searchPlan, accumulators)
+            .let { MangasPage(it, false) }
+            .filterBlockedManga()
+            .mangas
+        val fromIndex = ((page - 1) * ADVANCED_SEARCH_PAGE_SIZE).coerceAtMost(finalResults.size)
+        val toIndex = minOf(fromIndex + ADVANCED_SEARCH_PAGE_SIZE, finalResults.size)
+
+        return MangasPage(
+            finalResults.subList(fromIndex, toIndex),
+            finalResults.size > toIndex || accumulators.values.any { it.hasMore },
+        )
+    }
+
+    private fun fetchSearchCriterionPage(
+        criterion: SearchCriterion,
+        page: Int,
+        parsedFilters: ApiSearchFilters,
+    ): MangasPage = when (criterion) {
+        is SearchCriterion.Category -> apiClient.getCategoryFilter(
+            categoryId = criterion.categoryId,
+            page = page,
+            sortBy = parsedFilters.sortBy,
+            time = parsedFilters.time,
+        )
+        is SearchCriterion.Keyword -> apiClient.search(
+            query = criterion.query,
+            page = page,
+            mainTag = criterion.mainTagOverride ?: parsedFilters.mainTag,
+            sortBy = parsedFilters.sortBy,
+            time = parsedFilters.time,
+        )
+    }
+
+    private fun combineServerSearchResults(
+        searchPlan: ServerSearchPlan,
+        accumulators: Map<SearchCriterion, SearchCriterionAccumulator>,
+    ): List<SManga> {
+        val baseResults = when {
+            searchPlan.required.isNotEmpty() -> accumulators.getValue(searchPlan.required.first()).mangas
+            searchPlan.optional.isNotEmpty() ->
+                searchPlan.optional
+                    .flatMap { accumulators.getValue(it).mangas }
+                    .distinctBy { extractAlbumId(it.url) }
+            else -> emptyList()
+        }
+
+        return baseResults.filter { manga ->
+            val albumId = extractAlbumId(manga.url)
+            albumId.isNotBlank() &&
+                searchPlan.required.all { albumId in accumulators.getValue(it).ids } &&
+                (searchPlan.optional.isEmpty() || searchPlan.optional.any { albumId in accumulators.getValue(it).ids }) &&
+                searchPlan.exclude.none { albumId in accumulators.getValue(it).ids }
+        }
+    }
+
+    private fun resolveSearchQuery(query: String, allowCategoryRedirect: Boolean): ResolvedSearchQuery {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return ResolvedSearchQuery()
+
+        val tokens = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (allowCategoryRedirect && tokens.size == 1) {
+            val singleToken = tokens.single()
+            val singleOption = findCategoryOptionBySearchToken(singleToken)
+            if (
+                singleOption != null &&
+                singleOption.categoryId.isNotBlank() &&
+                !singleToken.startsWith("+") &&
+                !singleToken.startsWith("-")
+            ) {
+                return ResolvedSearchQuery(categoryId = singleOption.categoryId)
+            }
+        }
+
+        return ResolvedSearchQuery(
+            textQuery = tokens.joinToString(" ") { canonicalizeSearchToken(it) },
+            rawTextQuery = tokens.joinToString(" "),
+        )
+    }
 
     private fun parseSearchTerms(query: String): SearchTerms {
         val required = mutableListOf<String>()
@@ -249,6 +534,32 @@ class Jinmantiantang :
         .map { it.trim().normalizeFilterText() }
         .filter { it.isNotEmpty() }
         .distinct()
+
+    private fun canonicalizeSearchToken(rawToken: String): String {
+        if (rawToken.isBlank()) return rawToken
+
+        val prefix = rawToken.takeIf { it.startsWith("+") || it.startsWith("-") }
+            ?.take(1)
+            .orEmpty()
+        val token = rawToken.removePrefix(prefix)
+        val option = findCategoryOptionBySearchToken(token) ?: return rawToken
+        val canonicalToken = option.keyword.ifBlank { token }
+
+        return prefix + canonicalToken
+    }
+
+    private fun findCategoryOptionBySearchToken(token: String): CategoryOption? {
+        val normalizedToken = token.normalizeFilterText()
+        if (normalizedToken.isEmpty()) return null
+
+        return ApiCategoryFilter.OPTIONS.firstOrNull { option ->
+            option.matchesSearchToken(normalizedToken)
+        }
+    }
+
+    private fun CategoryOption.matchesSearchToken(normalizedToken: String): Boolean = label.normalizeFilterText() == normalizedToken ||
+        keyword.takeIf { it.isNotBlank() }?.normalizeFilterText() == normalizedToken ||
+        categoryId.takeIf { it.isNotBlank() }?.normalizeFilterText() == normalizedToken
 
     private fun String.normalizeFilterText(): String = lowercase()
         .replace(" ", "")
