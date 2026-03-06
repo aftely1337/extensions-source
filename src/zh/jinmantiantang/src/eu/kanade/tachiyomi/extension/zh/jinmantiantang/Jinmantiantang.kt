@@ -362,7 +362,8 @@ class Jinmantiantang :
             .toMutableMap()
         val targetResultCount = page * ADVANCED_SEARCH_PAGE_SIZE + 1
 
-        for (_ in 0 until MAX_ADVANCED_SEARCH_REMOTE_PAGES) {
+        var fetchIteration = 0
+        while (fetchIteration < MAX_ADVANCED_SEARCH_REMOTE_PAGES) {
             var fetchedAny = false
 
             searchPlan.allCriteria().forEach { criterion ->
@@ -389,6 +390,8 @@ class Jinmantiantang :
             if (combinedResults.size >= targetResultCount || !fetchedAny || accumulators.values.all { !it.hasMore }) {
                 break
             }
+
+            fetchIteration += 1
         }
 
         val finalResults = combineServerSearchResults(searchPlan, accumulators)
