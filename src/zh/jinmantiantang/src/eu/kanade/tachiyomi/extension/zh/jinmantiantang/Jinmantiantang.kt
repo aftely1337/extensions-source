@@ -570,9 +570,29 @@ class Jinmantiantang :
         .orEmpty()
         .substringBefore("//")
         .split(',', ' ', '\n', '\r', '\t')
-        .map { it.trim().normalizeFilterText() }
-        .filter { it.isNotEmpty() }
+        .flatMap(::expandBlockedWordVariants)
         .distinct()
+
+    private fun expandBlockedWordVariants(rawWord: String): List<String> {
+        val trimmed = rawWord.trim()
+        val normalizedWord = trimmed.normalizeFilterText()
+        if (normalizedWord.isEmpty()) return emptyList()
+
+        val variants = linkedSetOf(normalizedWord)
+        val matchedOption = findCategoryOptionBySearchToken(trimmed)
+
+        matchedOption?.let { option ->
+            variants += option.label.normalizeFilterText()
+            option.keyword.takeIf { it.isNotBlank() }?.let { variants += it.normalizeFilterText() }
+        }
+
+        when (normalizedWord) {
+            "扶她" -> variants += "扶他"
+            "扶他" -> variants += "扶她"
+        }
+
+        return variants.filter { it.isNotEmpty() }
+    }
 
     private fun canonicalizeSearchToken(rawToken: String): String {
         if (rawToken.isBlank()) return rawToken
