@@ -33,7 +33,7 @@ class Jinmantiantang :
         private const val ADVANCED_SEARCH_PAGE_SIZE = 20
         private const val MAX_ADVANCED_SEARCH_REMOTE_PAGES = 12
         private const val BLOCK_WORD_SEARCH_SCOPE = "0"
-        private const val BLOCKED_WORD_DETAIL_CONCURRENCY = 4
+        private const val DEFAULT_BLOCKED_WORD_DETAIL_CONCURRENCY = 4
         const val PREFIX_ID_SEARCH = "$PREFIX_ID_SEARCH_NO_COLON:"
     }
 
@@ -526,7 +526,10 @@ class Jinmantiantang :
         val blockedWords = getBlockedWords()
         if (blockedWords.isEmpty() || mangas.isEmpty()) return this
 
-        val executor = Executors.newFixedThreadPool(minOf(BLOCKED_WORD_DETAIL_CONCURRENCY, mangas.size))
+        val configuredConcurrency = preferences.getBlockedWordDetailConcurrency()
+            .takeIf { it > 0 }
+            ?: DEFAULT_BLOCKED_WORD_DETAIL_CONCURRENCY
+        val executor = Executors.newFixedThreadPool(minOf(configuredConcurrency, mangas.size))
         val filteredMangas = try {
             val tasks = mangas.map { manga ->
                 Callable { manga.matchesBlockedWordsWithDetails(blockedWords) }
