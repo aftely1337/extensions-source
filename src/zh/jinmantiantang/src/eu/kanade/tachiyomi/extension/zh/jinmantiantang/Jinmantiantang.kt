@@ -17,6 +17,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import rx.Observable
+import java.util.Collections
+import java.util.LinkedHashMap
 
 class Jinmantiantang :
     HttpSource(),
@@ -40,6 +42,11 @@ class Jinmantiantang :
 
     private val signatureInterceptor = ApiSignatureInterceptor()
     private val responseInterceptor = ApiResponseInterceptor()
+    private val blockedWordDetailCache = Collections.synchronizedMap(
+        object : LinkedHashMap<String, SManga>(128, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SManga>?): Boolean = size > 256
+        },
+    )
 
     override val client: OkHttpClient = network.cloudflareClient
         .newBuilder()
@@ -516,8 +523,21 @@ class Jinmantiantang :
         val blockedWords = getBlockedWords()
         if (blockedWords.isEmpty()) return this
 
-        val filteredMangas = mangas.filterNot { manga -> manga.matchesBlockedWords(blockedWords) }
+        val filteredMangas = mangas.filterNot { manga -> manga.matchesBlockedWordsWithDetails(blockedWords) }
         return MangasPage(filteredMangas, hasNextPage)
+    }
+
+    private fun SManga.matchesBlockedWordsWithDetails(blockedWords: List<String>): Boolean {
+        if (matchesBlockedWords(blockedWords)) return true
+
+        val albumId = extractAlbumId(url)
+        if (albumId.isBlank()) return false
+
+        val detailedManga = blockedWordDetailCache[albumId] ?: runCatching { apiClient.getAlbumDetail(albumId) }
+            .onSuccess { blockedWordDetailCache[albumId] = it }
+            .getOrElse { return true }
+
+        return detailedManga.matchesBlockedWords(blockedWords)
     }
 
     private fun SManga.matchesBlockedWords(blockedWords: List<String>): Boolean {
