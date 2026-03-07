@@ -38,4 +38,5 @@ object JmConstants {
     const val PREF_API_DOMAIN_LIST = "api_domain_list"
     const val PREF_API_DOMAIN_LABEL_LIST = "api_domain_label_list"
     const val PREF_BLOCK_WORDS = "BLOCK_GENRES_LIST"
+    const val PREF_BLOCKED_WORD_DETAIL_CONCURRENCY = "blocked_word_detail_concurrency"
 }
