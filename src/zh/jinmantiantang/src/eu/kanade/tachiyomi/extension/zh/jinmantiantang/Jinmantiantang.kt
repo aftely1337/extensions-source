@@ -33,7 +33,7 @@ class Jinmantiantang :
         private const val ADVANCED_SEARCH_PAGE_SIZE = 20
         private const val MAX_ADVANCED_SEARCH_REMOTE_PAGES = 12
         private const val BLOCK_WORD_SEARCH_SCOPE = "0"
-        private const val DEFAULT_BLOCKED_WORD_DETAIL_CONCURRENCY = 4
+        private const val DEFAULT_BLOCKED_WORD_DETAIL_CONCURRENCY = 8
         const val PREFIX_ID_SEARCH = "$PREFIX_ID_SEARCH_NO_COLON:"
     }
 
