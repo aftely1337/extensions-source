@@ -19,6 +19,8 @@ import okhttp3.Response
 import rx.Observable
 import java.util.Collections
 import java.util.LinkedHashMap
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 
 class Jinmantiantang :
     HttpSource(),
@@ -31,6 +33,7 @@ class Jinmantiantang :
         private const val ADVANCED_SEARCH_PAGE_SIZE = 20
         private const val MAX_ADVANCED_SEARCH_REMOTE_PAGES = 12
         private const val BLOCK_WORD_SEARCH_SCOPE = "0"
+        private const val BLOCKED_WORD_DETAIL_CONCURRENCY = 4
         const val PREFIX_ID_SEARCH = "$PREFIX_ID_SEARCH_NO_COLON:"
     }
 
@@ -521,9 +524,22 @@ class Jinmantiantang :
 
     private fun MangasPage.filterBlockedManga(): MangasPage {
         val blockedWords = getBlockedWords()
-        if (blockedWords.isEmpty()) return this
+        if (blockedWords.isEmpty() || mangas.isEmpty()) return this
 
-        val filteredMangas = mangas.filterNot { manga -> manga.matchesBlockedWordsWithDetails(blockedWords) }
+        val executor = Executors.newFixedThreadPool(minOf(BLOCKED_WORD_DETAIL_CONCURRENCY, mangas.size))
+        val filteredMangas = try {
+            val tasks = mangas.map { manga ->
+                Callable { manga.matchesBlockedWordsWithDetails(blockedWords) }
+            }
+            val futures = executor.invokeAll(tasks)
+
+            mangas.zip(futures)
+                .filterNot { (_, future) -> runCatching { future.get() }.getOrElse { true } }
+                .map { (manga, _) -> manga }
+        } finally {
+            executor.shutdown()
+        }
+
         return MangasPage(filteredMangas, hasNextPage)
     }
 
