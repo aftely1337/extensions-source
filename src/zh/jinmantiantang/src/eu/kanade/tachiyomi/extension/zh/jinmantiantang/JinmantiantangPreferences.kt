@@ -50,10 +50,10 @@ internal fun getPreferenceList(
     ListPreference(context).apply {
         key = JmConstants.PREF_BLOCKED_WORD_DETAIL_CONCURRENCY
         title = "屏蔽词检查并发数"
-        entries = arrayOf("1（最稳）", "2", "4（默认）", "6", "8（最快）")
-        entryValues = arrayOf("1", "2", "4", "6", "8")
+        entries = arrayOf("1（最稳）", "2", "4", "6", "8（默认）", "10", "12", "16（实验）")
+        entryValues = arrayOf("1", "2", "4", "6", "8", "10", "12", "16")
         summary = "当前: %s\n并发越高越快，但更容易触发站点限流或超时"
-        setDefaultValue("4")
+        setDefaultValue("8")
     },
 )
 

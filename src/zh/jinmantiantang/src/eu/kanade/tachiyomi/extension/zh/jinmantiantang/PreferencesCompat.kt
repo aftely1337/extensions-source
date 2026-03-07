@@ -20,10 +20,10 @@ internal fun SharedPreferences.getBlockedWordDetailConcurrency(): Int {
         getString(JmConstants.PREF_BLOCKED_WORD_DETAIL_CONCURRENCY, null)
     }.getOrNull()
         ?.toIntOrNull()
-    if (stringValue != null) return stringValue.coerceIn(1, 8)
+    if (stringValue != null) return stringValue.coerceIn(1, 16)
 
     val intValue = runCatching {
-        getInt(JmConstants.PREF_BLOCKED_WORD_DETAIL_CONCURRENCY, 4)
-    }.getOrDefault(4)
-    return intValue.coerceIn(1, 8)
+        getInt(JmConstants.PREF_BLOCKED_WORD_DETAIL_CONCURRENCY, 8)
+    }.getOrDefault(8)
+    return intValue.coerceIn(1, 16)
 }
